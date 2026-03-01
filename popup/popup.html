@@ -16,11 +16,17 @@
 <body>
     <div class="glass-container">
         <header>
-            <h1>AdaptiRead</h1>
+            <h1 id="app-title">AdaptiRead</h1>
             <button id="settings-toggle" class="icon-btn" title="Settings">⚙️</button>
         </header>
 
         <main>
+            <div id="simplify-action-container" style="margin-bottom: 20px;">
+                <button id="simplify-page-btn" class="primary-btn"
+                    style="width: 100%; padding: 12px; font-size: 14px; background: linear-gradient(135deg, #9333ea 0%, #4f46e5 100%);">✨
+                    Simplify This Page</button>
+            </div>
+
             <div class="status-card">
                 <label class="switch-container">
                     <span class="label-text">Simplification</span>
@@ -47,20 +53,31 @@
                             style="min-width: 60px; padding: 0 12px;">Save</button>
                     </div>
                 </div>
+                <div class="level-section">
+                    <label>Developer Tools</label>
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button id="open-debug" class="primary-btn glass-btn" style="font-size: 11px; padding: 6px;">🔍
+                            Inspect Memory</button>
+                        <button id="reset-db" class="primary-btn"
+                            style="background: #ff4444; font-size: 11px; padding: 6px;">🗑 Reset All</button>
+                    </div>
+                </div>
             </div>
 
             <div class="stats-grid">
                 <div class="stat-item">
-                    <span class="stat-value" id="words-scanned">0</span>
-                    <span class="stat-label">Words Scanned</span>
+                    <span class="stat-value" id="stats-seen">0</span>
+                    <span class="stat-label">Words Interacted</span>
                 </div>
                 <div class="stat-item">
-                    <span class="stat-value" id="words-learned">0</span>
-                    <span class="stat-label">Words Known</span>
+                    <span class="stat-value" id="stats-mastered">0</span>
+                    <span class="stat-label">Mastered</span>
                 </div>
             </div>
 
-            <button id="view-insights" class="primary-btn">View Weekly Insights</button>
+            <div class="tutor-section" style="margin-top: 20px;">
+                <button id="view-insights" class="primary-btn glass-btn">✨ Generate Weekly Digest</button>
+            </div>
         </main>
 
         <div id="insights-panel" class="hidden">
@@ -69,17 +86,42 @@
                 <h2>Weekly Digest</h2>
             </div>
             <div class="insights-content">
-                <p class="insight-tip"><strong>Insight:</strong> You've been active in Technology articles this week!
-                </p>
-                <p class="insight-tip"><strong>Recommendation:</strong> Try focusing on these 5 academic verbs found in
-                    your reading.</p>
-                <ul id="word-list" class="mini-list">
-                    <li>Accelerate</li>
-                    <li>Correlate</li>
-                    <li>Derive</li>
-                    <li>Validate</li>
-                    <li>Framework</li>
-                </ul>
+                <div id="insights-loading" class="hidden">
+                    <div class="spinner"></div>
+                    <p>AI is analyzing your learning state...</p>
+                </div>
+                <div id="insights-display">
+                    <p class="insight-text" id="ai-insight-text">Your tutor insights will appear here after analysis.
+                    </p>
+                    <div id="struggling-words-container" class="hidden">
+                        <h4 style="margin-top: 15px; font-size: 13px; color: #888;">WORDS TO FOCUS ON:</h4>
+                        <ul id="word-list" class="mini-list"></ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="debug-panel" class="hidden">
+            <div class="panel-header">
+                <button id="close-debug" class="icon-btn">←</button>
+                <h2>Tutor Memory</h2>
+            </div>
+            <div class="debug-content" style="overflow-y: auto; max-height: 280px; padding-bottom: 15px;">
+                <div style="margin-bottom: 15px; display: flex; gap: 10px;">
+                    <button id="force-decay" class="primary-btn glass-btn" style="font-size: 11px; padding: 6px;">🗓
+                        Force 7-Day Decay</button>
+                </div>
+                <table id="vocab-table"
+                    style="width: 100%; font-size: 11px; border-collapse: collapse; background: rgba(0,0,0,0.2); border-radius: 8px;">
+                    <thead>
+                        <tr style="text-align: left; color: #888; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <th style="padding: 8px;">Word</th>
+                            <th style="padding: 8px;">Prof</th>
+                            <th style="padding: 8px;">Stab</th>
+                        </tr>
+                    </thead>
+                    <tbody id="vocab-body"></tbody>
+                </table>
             </div>
         </div>
 

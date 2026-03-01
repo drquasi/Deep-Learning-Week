@@ -82,7 +82,7 @@ class AdaptiReadStorage {
         return this.get(STORE_VOCAB, word.toLowerCase());
     }
 
-    async updateWordProficiency(word, delta, interactionType) {
+    async updateWordProficiency(word, delta, stabilityDelta = 0, interactionType = 'hover') {
         const normalizedWord = word.toLowerCase();
         let wordData = await this.getWord(normalizedWord);
 
@@ -90,21 +90,39 @@ class AdaptiReadStorage {
             wordData = {
                 word: normalizedWord,
                 proficiency: 0.1, // Initial familiarity
+                stability: 0.5,   // Initial memory stability
                 lastInteraction: Date.now(),
-                decayRate: 0.1,
-                interactionCount: 0
+                decayRate: 0.05,  // Base decay rate
+                interactionCount: 0,
+                contextCount: 0,
+                isDiscovered: false,
+                history: []
             };
         }
 
-        // Interpret delta based on proposal logic
-        const prevProficiency = wordData.proficiency;
+        // Apply weighted changes
         wordData.proficiency = Math.max(0, Math.min(1, wordData.proficiency + delta));
+        wordData.stability = Math.max(0.1, wordData.stability + stabilityDelta);
         wordData.lastInteraction = Date.now();
         wordData.interactionCount++;
 
+        // Tutor: Mark as discovered on first explicit interaction (hover/click)
+        if (interactionType !== 'context_seen') {
+            wordData.isDiscovered = true;
+        }
+
+        // Context tracking
+        if (interactionType === 'context_seen') {
+            wordData.contextCount++;
+        }
+
+        // Log history snippet (limit to last 5 for storage efficiency)
+        wordData.history.push({ type: interactionType, time: Date.now() });
+        if (wordData.history.length > 5) wordData.history.shift();
+
         await this.put(STORE_VOCAB, wordData);
 
-        // Log interaction
+        // Detailed interaction log
         await this.add(STORE_INTERACTIONS, {
             word: normalizedWord,
             type: interactionType,
@@ -112,6 +130,28 @@ class AdaptiReadStorage {
         });
 
         return wordData;
+    }
+
+    async getAllWords() {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(STORE_VOCAB, 'readonly');
+            const store = transaction.objectStore(STORE_VOCAB);
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async clearAll() {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([STORE_VOCAB, STORE_INTERACTIONS, STORE_ARTICLES, STORE_CONTEXTS], 'readwrite');
+            transaction.objectStore(STORE_VOCAB).clear();
+            transaction.objectStore(STORE_INTERACTIONS).clear();
+            transaction.objectStore(STORE_ARTICLES).clear();
+            transaction.objectStore(STORE_CONTEXTS).clear();
+            transaction.oncomplete = () => resolve({ success: true });
+            transaction.onerror = () => reject(transaction.error);
+        });
     }
 
     // Generic DB methods

@@ -31,11 +31,11 @@ chrome.runtime.onStartup.addListener(async () => {
 });
 
 const INTERACTION_IMPACT = {
-    'hover_short': 0.05,
-    'hover_long': 0.0,
-    'know_this': 0.3,
-    'simplify': -0.1,
-    'passive': 0.01
+    'hover': { proficiency: 0.05, stability: 0 },
+    'simplify_click': { proficiency: -0.10, stability: -0.05 },
+    'know_it_click': { proficiency: 0.20, stability: 0.10 },
+    'context_seen': { proficiency: 0.01, stability: 0 },
+    'quiz_correct': { proficiency: 0.30, stability: 0.20 }
 };
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
@@ -63,8 +63,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 
-    if (message.type === 'GET_ANALYTICS') {
-        getAnalytics().then(sendResponse);
+    if (message.type === 'GET_LEARNING_INSIGHTS') {
+        generateLearningInsights().then(sendResponse);
+        return true;
+    }
+
+    if (message.type === 'MARK_KNOWN') {
+        handleInteraction(message.word, 'know_it_click').then(sendResponse);
+        return true;
+    }
+
+    if (message.type === 'GET_VOCAB_STATS') {
+        getVocabStats().then(sendResponse);
+        return true;
+    }
+
+    // DEBUG HANDLERS
+    if (message.type === 'DEBUG_RESET_DB') {
+        self.adaptiReadStorage.clearAll().then(sendResponse);
+        return true;
+    }
+
+    if (message.type === 'DEBUG_FORCE_DECAY') {
+        applyDecay(message.days || 7).then(sendResponse);
+        return true;
+    }
+
+    if (message.type === 'DEBUG_GET_ALL_WORDS') {
+        self.adaptiReadStorage.getAllWords().then(sendResponse);
         return true;
     }
 });
@@ -205,10 +231,20 @@ async function processBatch(url, sentences) {
 
                     // Broadcast these words back to EVERY segment in this chunk
                     for (const item of chunk) {
-                        const segmentWords = filtered.filter(w => item.normalized.includes(w.toLowerCase()));
-                        await self.adaptiReadStorage.saveContext(item.hash, segmentWords);
+                        const segmentWords = [];
+                        for (const w of filtered) {
+                            // Tutor: Skip words already mastered (proficiency > 0.8)
+                            const wordObj = await self.adaptiReadStorage.getWord(w);
+                            if (wordObj && wordObj.proficiency > 0.8) continue;
 
-                        // Always ensure an entry exists even if empty to signal "finished scanning"
+                            if (item.normalized.includes(w.toLowerCase())) {
+                                segmentWords.push(w);
+                                // Log context sighting for the tutor model (small passive gain)
+                                await self.adaptiReadStorage.updateWordProficiency(w, 0.01, 0, 'context_seen');
+                            }
+                        }
+
+                        await self.adaptiReadStorage.saveContext(item.hash, segmentWords);
                         allIdentifications[item.original] = segmentWords;
                     }
                 } catch (err) {
@@ -265,46 +301,103 @@ async function hashSentence(sentence) {
 async function handleInteraction(word, type) {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
-        const delta = INTERACTION_IMPACT[type] || 0;
-        await self.adaptiReadStorage.updateWordProficiency(word, delta, type);
+        const impact = INTERACTION_IMPACT[type] || { proficiency: 0, stability: 0 };
+        await self.adaptiReadStorage.updateWordProficiency(word, impact.proficiency, impact.stability, type);
     } catch (err) {
         console.error('Interaction Error:', err);
     }
 }
 
-async function getAnalytics() {
+async function generateLearningInsights() {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
-        return await self.adaptiReadStorage.getAnalytics();
+        const allWords = await self.adaptiReadStorage.getAllWords();
+
+        // Filter for "Struggling but Frequent" words
+        const struggling = allWords
+            .filter(w => w.proficiency < 0.6 && w.contextCount > 2)
+            .sort((a, b) => b.contextCount - a.contextCount)
+            .slice(0, 5);
+
+        if (struggling.length === 0) return { insight: "You're doing great! Keep reading to discover more words." };
+
+        const summary = struggling.map(w => `${w.word} (Seen ${w.contextCount}x, Proficiency: ${(w.proficiency * 100).toFixed(0)}%)`).join(', ');
+
+        const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
+        let response;
+        const prompt = `Analyze this student's vocabulary struggle: ${summary}. 
+            Provide a short, 2-sentence actionable coaching tip. 
+            Focus on WHY they might be struggling with these specific words and give a Mnemonic or usage tip.`;
+
+        if (openaiKey) {
+            response = await fetch(OPENAI_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+                body: JSON.stringify({
+                    model: 'gpt-3.5-turbo',
+                    messages: [{ role: 'system', content: 'You are a helpful ESL Tutor.' }, { role: 'user', content: prompt }]
+                })
+            });
+        } else {
+            // Fallback: simplified coaching if no key
+            return { insight: `You've seen "${struggling[0].word}" many times. Try using it in a sentence today!` };
+        }
+
+        const data = await response.json();
+        return { insight: data.choices[0].message.content, words: struggling.map(w => w.word) };
     } catch (err) {
-        console.error('Analytics Error:', err);
-        return null;
+        console.error('Insights Error:', err);
+        return { insight: "Analysis unavailable right now." };
     }
 }
 
-async function applyDecay() {
+async function applyDecay(manualDays = 0) {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
         const db = self.adaptiReadStorage.db;
         const transaction = db.transaction(['vocabulary'], 'readwrite');
         const store = transaction.objectStore('vocabulary');
         const request = store.getAll();
-        request.onsuccess = () => {
-            const words = request.result;
-            const now = Date.now();
-            words.forEach(wordData => {
-                const dayDiff = (now - wordData.lastInteraction) / (1000 * 60 * 60 * 24);
-                if (dayDiff > 1) {
-                    wordData.proficiency = Math.max(0, wordData.proficiency - (wordData.decayRate * Math.log1p(dayDiff)));
-                    store.put(wordData);
-                }
-            });
-        };
+
+        return new Promise((resolve) => {
+            request.onsuccess = () => {
+                const words = request.result;
+                const now = Date.now();
+                const dayMs = 1000 * 60 * 60 * 24;
+
+                words.forEach(wordData => {
+                    const actualDiff = (now - wordData.lastInteraction) / dayMs;
+                    const dayDiff = actualDiff + manualDays;
+
+                    if (dayDiff > 1) {
+                        wordData.proficiency = Math.max(0, wordData.proficiency - (wordData.decayRate * Math.log1p(dayDiff)));
+                        store.put(wordData);
+                    }
+                });
+                resolve({ success: true, count: words.length });
+            };
+        });
     } catch (err) {
         console.error('Decay Error:', err);
+        return { success: false };
     }
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === 'decayAlarm') applyDecay();
 });
+
+async function getVocabStats() {
+    try {
+        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
+        const allWords = await self.adaptiReadStorage.getAllWords();
+        const discoveredWords = allWords.filter(w => w.isDiscovered);
+        return {
+            total: discoveredWords.length,
+            mastered: discoveredWords.filter(w => w.proficiency > 0.8).length
+        };
+    } catch (err) {
+        console.error('Stats Error:', err);
+        return { total: 0, mastered: 0 };
+    }
+}

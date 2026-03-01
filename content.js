@@ -1,193 +1,18 @@
-// AdaptiRead Content Script - Dictionary Lookup Strategy
-let isEnabled = true;
-let processedNodes = new WeakSet();
-let scanTimeout = null;
-let activeTooltip = null;
 let globalLoadingIndicator = null;
 let hasScannedOnThisPage = false;
 let isScanningActive = false;
+let isApplyingHighlights = false;
+let isEnabled = true;
+let scanTimeout = null;
+const processedNodes = new WeakSet();
 
+// --- UTILS ---
 function normalizeSentence(text) {
     if (!text) return '';
     return text.toLowerCase()
         .replace(/\s+/g, ' ')
-        .replace(/[^\w\s\-\'\u00C0-\u017F]/g, '')
-        .trim();
-}
-
-const TOOLTIP_CSS = `
-.adaptiread-highlight {
-    background-image: linear-gradient(120deg, rgba(122, 199, 255, 0.3) 0%, rgba(122, 199, 255, 0.3) 100%);
-    background-repeat: no-repeat;
-    background-size: 100% 0.2em;
-    background-position: 0 88%;
-    transition: background-size 0.25s ease-in;
-    cursor: help;
-    border-bottom: 1px dashed #7ac7ff;
-}
-.adaptiread-highlight:hover {
-    background-size: 100% 88%;
-}
-.adaptiread-tooltip {
-    position: fixed;
-    z-index: 1000000;
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(10px);
-    border-radius: 12px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-    padding: 16px;
-    width: 280px;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    font-size: 14px;
-    color: #1a1a1b;
-    border: 1px solid rgba(0,0,0,0.05);
-    pointer-events: none;
-    opacity: 0;
-    transform: translateY(10px);
-    transition: opacity 0.3s, transform 0.3s;
-}
-.adaptiread-tooltip.visible {
-    opacity: 1;
-    transform: translateY(0);
-}
-.adaptiread-tooltip .word {
-    font-weight: 700;
-    font-size: 18px;
-    margin-bottom: 4px;
-    color: #007bff;
-    text-transform: capitalize;
-}
-.adaptiread-tooltip .pos {
-    font-style: italic;
-    color: #666;
-    font-size: 12px;
-    margin-bottom: 8px;
-}
-.adaptiread-tooltip .definition {
-    line-height: 1.5;
-    margin-bottom: 10px;
-}
-.adaptiread-tooltip .synonym {
-    font-size: 12px;
-    color: #00a86b;
-    background: rgba(0, 168, 107, 0.1);
-    padding: 2px 6px;
-    border-radius: 4px;
-    display: inline-block;
-}
-.adaptiread-loading {
-    color: #999;
-    font-size: 14px;
-    font-style: italic;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-/* Ask to Simplify Popup */
-.adaptiread-ask-popup {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    z-index: 2147483647;
-    background: rgba(255, 255, 255, 0.98);
-    backdrop-filter: blur(10px);
-    border-radius: 16px;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.15);
-    padding: 16px 20px;
-    width: 320px;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    border: 1px solid rgba(0,123,255,0.1);
-    animation: adaptiread-slideInRight 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-}
-@keyframes adaptiread-slideInRight {
-    from { opacity: 0; transform: translateX(50px); }
-    to { opacity: 1; transform: translateX(0); }
-}
-.adaptiread-ask-popup .title {
-    font-weight: 700;
-    font-size: 16px;
-    color: #1a1a1b;
-    margin-bottom: 4px;
-}
-.adaptiread-ask-popup .desc {
-    font-size: 13px;
-    color: #666;
-    margin-bottom: 16px;
-}
-.adaptiread-ask-popup .actions {
-    display: flex;
-    gap: 10px;
-}
-.adaptiread-ask-popup button {
-    flex: 1;
-    padding: 8px 12px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    border: none;
-}
-.adaptiread-ask-popup .btn-yes {
-    background: #007bff;
-    color: white;
-}
-.adaptiread-ask-popup .btn-yes:hover { background: #0056b3; }
-.adaptiread-ask-popup .btn-no {
-    background: #f0f2f5 !important;
-    color: #4b4b4b !important;
-}
-.adaptiread-ask-popup .btn-no:hover { background: #e4e6e9 !important; }
-
-/* Global Loading Indicator */
-.adaptiread-global-loading {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    z-index: 2147483647;
-    background: white;
-    padding: 12px 20px;
-    border-radius: 50px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-family: 'Inter', sans-serif;
-    font-weight: 600;
-    font-size: 14px;
-    color: #007bff;
-    border: 1px solid rgba(0,123,255,0.1);
-    pointer-events: none;
-}
-.adaptiread-spinner {
-    width: 20px;
-    height: 20px;
-    border: 3px solid rgba(0,123,255,0.1);
-    border-top: 3px solid #007bff;
-    border-radius: 50%;
-    animation: adaptiread-spin 1s linear infinite;
-}
-@keyframes adaptiread-spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
-`;
-
-function injectStyles() {
-    try {
-        if (!document.head) {
-            console.log('AdaptiRead: Head not ready, waiting...');
-            setTimeout(injectStyles, 100);
-            return;
-        }
-        const styleUnits = document.createElement('style');
-        styleUnits.textContent = TOOLTIP_CSS;
-        document.head.appendChild(styleUnits);
-        console.log('AdaptiRead: Styles injected');
-    } catch (e) {
-        console.error('AdaptiRead: Style injection failed', e);
-    }
+        .trim()
+        .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "");
 }
 
 function safeSendMessage(message) {
@@ -200,27 +25,15 @@ function safeSendMessage(message) {
     });
 }
 
-chrome.storage.local.get(['enabled', 'simplifiedDomains'], (result) => {
-    console.log('AdaptiRead: Settings loaded', result);
-    isEnabled = result.enabled !== false;
-    const simplifiedDomains = result.simplifiedDomains || [];
-    const currentDomain = window.location.hostname;
+function injectStyles() {
+    if (!document.head || document.getElementById('adaptiread-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'adaptiread-styles';
+    style.textContent = TOOLTIP_CSS;
+    document.head.appendChild(style);
+}
 
-    if (isEnabled && chrome.runtime?.id) {
-        console.log('AdaptiRead: Initializing...');
-        injectStyles();
-
-        if (simplifiedDomains.includes(currentDomain)) {
-            console.log('AdaptiRead: Auto-starting for domain:', currentDomain);
-            startAdaptiRead();
-        } else {
-            showAskToSimplifyPopup();
-        }
-    } else {
-        console.log('AdaptiRead: Disabled or ID missing');
-    }
-});
-
+// --- UI COMPONENTS ---
 function showAskToSimplifyPopup() {
     if (hasScannedOnThisPage || document.getElementById('adaptiread-ask-popup')) return;
 
@@ -235,35 +48,19 @@ function showAskToSimplifyPopup() {
             <button class="btn-no">Not Now</button>
         </div>
     `;
-
     document.body.appendChild(popup);
 
     popup.querySelector('.btn-yes').addEventListener('click', () => {
-        const currentDomain = window.location.hostname;
-        chrome.storage.local.get(['simplifiedDomains'], (res) => {
-            const list = res.simplifiedDomains || [];
-            if (!list.includes(currentDomain)) {
-                list.push(currentDomain);
-                chrome.storage.local.set({ simplifiedDomains: list });
-            }
-        });
         popup.remove();
         startAdaptiRead();
     });
 
     popup.querySelector('.btn-no').addEventListener('click', () => {
+        hasScannedOnThisPage = true;
         popup.remove();
     });
 
-    // Auto-dismiss after 15 seconds if no interaction
     setTimeout(() => { if (popup.parentElement) popup.remove(); }, 15000);
-}
-
-function startAdaptiRead() {
-    if (hasScannedOnThisPage) return;
-    isScanningActive = true;
-    debouncedScan();
-    setupObserver();
 }
 
 function showLoadingIndicator() {
@@ -284,37 +81,55 @@ function hideLoadingIndicator() {
     }
 }
 
+// --- CORE LOGIC ---
+function startAdaptiRead() {
+    if (isScanningActive) return;
+    console.log('AdaptiRead: Starting scanning engine...');
+    hasScannedOnThisPage = true;
+    isScanningActive = true;
+    const existingPopup = document.getElementById('adaptiread-ask-popup');
+    if (existingPopup) existingPopup.remove();
+
+    injectStyles();
+    scanAndProcess(true); // Initial LOUD scan
+    setupObserver();
+}
+
 function setupObserver() {
-    console.log('AdaptiRead: Setting up observer');
     const observer = new MutationObserver((mutations) => {
-        if (!chrome.runtime?.id) { observer.disconnect(); return; }
+        if (!chrome.runtime?.id || isApplyingHighlights || !isScanningActive) return;
+
         let shouldScan = false;
         for (const mutation of mutations) {
-            if (mutation.addedNodes.length > 0) {
-                const isOurNode = Array.from(mutation.addedNodes).some(n =>
-                    n.classList?.contains('adaptiread-highlight') ||
-                    n.classList?.contains('adaptiread-tooltip')
-                );
-                if (!isOurNode) { shouldScan = true; break; }
+            // Ignore if mutation is inside our UI elements
+            if (mutation.target.closest?.('.adaptiread-tooltip, .adaptiread-ask-popup, .adaptiread-global-loading')) continue;
+
+            const hasNewContent = Array.from(mutation.addedNodes).some(n => {
+                if (n.nodeType === Node.TEXT_NODE) return n.textContent.trim().length > 5;
+                if (n.nodeType === Node.ELEMENT_NODE) {
+                    const isOurs = n.classList.contains('adaptiread-highlight') ||
+                        n.classList.contains('adaptiread-tooltip') ||
+                        n.classList.contains('adaptiread-global-loading');
+                    return !isOurs && !n.querySelector?.('.adaptiread-highlight');
+                }
+                return false;
+            });
+
+            if (hasNewContent) {
+                shouldScan = true;
+                break;
             }
         }
-        if (shouldScan) debouncedScan();
+        if (shouldScan) {
+            if (scanTimeout) clearTimeout(scanTimeout);
+            scanTimeout = setTimeout(() => scanAndProcess(false), 1000); // Silent re-scan
+        }
     });
     observer.observe(document.body, { childList: true, subtree: true });
 }
 
-function debouncedScan() {
-    if (scanTimeout) clearTimeout(scanTimeout);
-    scanTimeout = setTimeout(() => {
-        if (chrome.runtime?.id) scanAndProcess();
-    }, 800);
-}
-
-async function scanAndProcess() {
-    if (!isEnabled || !chrome.runtime?.id || !isScanningActive) return;
-    console.log('AdaptiRead: Scanning page...');
-    showLoadingIndicator();
-    let start = performance.now();
+async function scanAndProcess(isInitial = false) {
+    if (isApplyingHighlights || !chrome.runtime?.id) return;
 
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
     let node;
@@ -323,205 +138,181 @@ async function scanAndProcess() {
     while (node = walker.nextNode()) {
         const parent = node.parentElement;
         if (!parent || processedNodes.has(node)) continue;
+        if (parent.closest('.adaptiread-highlight, .adaptiread-tooltip, .adaptiread-ask-popup')) continue;
 
         const tagName = parent.tagName;
         const forbidden = ['SCRIPT', 'STYLE', 'TEXTAREA', 'NOSCRIPT', 'CODE', 'PRE', 'INPUT', 'SELECT'];
-        if (forbidden.includes(tagName) || parent.closest('.adaptiread-highlight')) continue;
+        if (forbidden.includes(tagName)) continue;
 
         const blockParent = parent.closest('p, div, h1, h2, h3, h4, h5, h6, li, td, th, blockquote, dt, dd, section, article, header, footer, main, aside') || parent;
         if (!blockMap.has(blockParent)) blockMap.set(blockParent, []);
         blockMap.get(blockParent).push(node);
     }
-    console.log(`AdaptiRead: Collected ${blockMap.size} text blocks.`);
 
-    if (blockMap.size === 0) {
-        hideLoadingIndicator();
-        return;
-    }
+    if (blockMap.size === 0) return;
 
-    const textToAnalyzeSet = new Set();
-    const blockToTextSegments = new Map();
+    if (isInitial) showLoadingIndicator();
+    isApplyingHighlights = true;
 
-    blockMap.forEach((nodes, blockElement) => {
-        let fullText = blockElement.textContent.trim().replace(/\s+/g, ' ');
-        if (fullText.length === 0) return;
+    try {
+        const textToAnalyzeSet = new Set();
+        const blockToTextSegments = new Map();
 
-        const segments = [];
-        if (fullText.length > 2000) {
-            const splitSentences = fullText.match(/[^.!?]+[.!?]?(?:\s|$)/g) || [fullText];
-            splitSentences.forEach(s => {
-                const trimmed = s.trim();
-                if (trimmed.length > 0) segments.push(trimmed);
-            });
-        } else {
-            segments.push(fullText);
-        }
+        blockMap.forEach((nodes, block) => {
+            let fullText = block.textContent.trim().replace(/\s+/g, ' ');
+            if (fullText.length === 0) return;
 
-        blockToTextSegments.set(blockElement, segments);
-        segments.forEach(seg => textToAnalyzeSet.add(seg));
-    });
+            const segments = fullText.length > 2000 ? (fullText.match(/[^.!?]+[.!?]?(?:\s|$)/g) || [fullText]) : [fullText];
+            const validSegments = segments.map(s => s.trim()).filter(s => s.length > 0);
 
-    const uniqueTexts = Array.from(textToAnalyzeSet);
-    if (uniqueTexts.length === 0) {
-        hideLoadingIndicator();
-        return;
-    }
-
-    const analysisResults = await safeSendMessage({
-        type: 'ANALYZE_PAGE',
-        url: window.location.href,
-        sentences: uniqueTexts
-    });
-
-    console.log(`AdaptiRead: Analysis received for ${uniqueTexts.length} segments in ${(performance.now() - start).toFixed(1)}ms`);
-
-    if (!analysisResults) {
-        hideLoadingIndicator();
-        return;
-    }
-
-    // Normalize analysis results for robust lookup
-    const normalizedAnalysis = {};
-    Object.keys(analysisResults).forEach(key => {
-        normalizedAnalysis[normalizeSentence(key)] = analysisResults[key];
-    });
-
-    blockMap.forEach((nodes, blockElement) => {
-        const textSegments = blockToTextSegments.get(blockElement);
-        if (!textSegments) return;
-
-        const allComplexWords = new Set();
-        textSegments.forEach(seg => {
-            const normalizedSeg = normalizeSentence(seg);
-            let words = normalizedAnalysis[normalizedSeg];
-            if (words) {
-                if (!Array.isArray(words)) words = Object.keys(words);
-                words.forEach(w => allComplexWords.add(w));
-            }
+            blockToTextSegments.set(block, validSegments);
+            validSegments.forEach(seg => textToAnalyzeSet.add(seg));
         });
 
-        if (allComplexWords.size === 0) {
-            const wasAnalyzed = textSegments.some(seg => normalizedAnalysis[normalizeSentence(seg)] !== undefined);
-            if (wasAnalyzed) {
+        const uniqueTexts = Array.from(textToAnalyzeSet);
+        if (uniqueTexts.length === 0) return;
+
+        const analysis = await safeSendMessage({ type: 'ANALYZE_PAGE', url: window.location.href, sentences: uniqueTexts });
+        if (!analysis) return;
+
+        const normalizedAnalysis = {};
+        Object.keys(analysis).forEach(k => normalizedAnalysis[normalizeSentence(k)] = analysis[k]);
+
+        blockMap.forEach((nodes, block) => {
+            const segments = blockToTextSegments.get(block);
+            if (!segments) return;
+
+            const words = new Set();
+            segments.forEach(seg => {
+                const results = normalizedAnalysis[normalizeSentence(seg)];
+                if (results) (Array.isArray(results) ? results : Object.keys(results)).forEach(w => words.add(w));
+            });
+
+            if (words.size === 0) {
                 nodes.forEach(n => processedNodes.add(n));
+                return;
             }
-            return;
-        }
 
-        const wordList = Array.from(allComplexWords).sort((a, b) => b.length - a.length);
+            const sortedWords = Array.from(words).sort((a, b) => b.length - a.length);
 
-        nodes.forEach(textNode => {
-            if (processedNodes.has(textNode)) return;
-            processedNodes.add(textNode);
+            nodes.forEach(textNode => {
+                if (processedNodes.has(textNode)) return;
+                processedNodes.add(textNode);
 
-            const textValue = textNode.nodeValue;
-            let displaySegments = [{ type: 'text', content: textValue }];
-            let changed = false;
+                let displaySegments = [{ type: 'text', content: textNode.nodeValue }];
+                let changed = false;
 
-            wordList.forEach(word => {
-                const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const regex = new RegExp(`\\b${escapedWord}\\b`, 'gi');
-                const newDisplaySegments = [];
-
-                displaySegments.forEach(segment => {
-                    if (segment.type === 'text') {
-                        let lastIndex = 0, match;
-                        while ((match = regex.exec(segment.content)) !== null) {
-                            changed = true;
-                            if (match.index > lastIndex) {
-                                newDisplaySegments.push({ type: 'text', content: segment.content.substring(lastIndex, match.index) });
+                sortedWords.forEach(word => {
+                    const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
+                    let nextDisplaySegments = [];
+                    displaySegments.forEach(seg => {
+                        if (seg.type === 'text') {
+                            let lastIndex = 0, match;
+                            while ((match = regex.exec(seg.content)) !== null) {
+                                changed = true;
+                                if (match.index > lastIndex) nextDisplaySegments.push({ type: 'text', content: seg.content.substring(lastIndex, match.index) });
+                                nextDisplaySegments.push({ type: 'complex', word: match[0] });
+                                lastIndex = regex.lastIndex;
                             }
-                            newDisplaySegments.push({ type: 'complex', word: match[0] });
-                            lastIndex = regex.lastIndex;
-                        }
-                        if (lastIndex < segment.content.length) {
-                            newDisplaySegments.push({ type: 'text', content: segment.content.substring(lastIndex) });
-                        }
-                    } else {
-                        newDisplaySegments.push(segment);
-                    }
+                            if (lastIndex < seg.content.length) nextDisplaySegments.push({ type: 'text', content: seg.content.substring(lastIndex) });
+                        } else nextDisplaySegments.push(seg);
+                    });
+                    displaySegments = nextDisplaySegments;
                 });
-                displaySegments = newDisplaySegments;
-            });
 
-            if (changed) {
-                const fragment = document.createDocumentFragment();
-                displaySegments.forEach(seg => {
-                    if (seg.type === 'text') {
-                        fragment.appendChild(document.createTextNode(seg.content));
-                    } else {
-                        const span = document.createElement('span');
-                        span.className = 'adaptiread-highlight';
-                        span.textContent = seg.word;
-                        span.setAttribute('data-word', seg.word.toLowerCase());
-                        fragment.appendChild(span);
-                    }
-                });
-                if (textNode.parentNode) {
-                    textNode.parentNode.replaceChild(fragment, textNode);
+                if (changed) {
+                    const fragment = document.createDocumentFragment();
+                    displaySegments.forEach(seg => {
+                        if (seg.type === 'text') {
+                            const tn = document.createTextNode(seg.content);
+                            processedNodes.add(tn);
+                            fragment.appendChild(tn);
+                        } else {
+                            const span = document.createElement('span');
+                            span.className = 'adaptiread-highlight';
+                            span.textContent = seg.word;
+                            span.setAttribute('data-word', seg.word.toLowerCase());
+                            fragment.appendChild(span);
+                        }
+                    });
+                    if (textNode.parentNode) textNode.parentNode.replaceChild(fragment, textNode);
                 }
-            }
+            });
         });
-    });
-
-    hasScannedOnThisPage = true;
-    hideLoadingIndicator();
+        attachIgnoreObserverToHighlights();
+    } catch (err) {
+        console.error('AdaptiRead: Scan error', err);
+    } finally {
+        isApplyingHighlights = false;
+        hideLoadingIndicator();
+    }
 }
 
-// Tooltip Logic
+// --- INTERACTION LOGIC ---
+let activeTooltip = null;
+
 document.addEventListener('mouseover', async (e) => {
     const target = e.target.closest('.adaptiread-highlight');
     if (!target || !chrome.runtime?.id) return;
 
+    if (activeTooltip && activeTooltip._target === target) return;
+
     const word = target.getAttribute('data-word');
     showTooltip(target, word);
+    safeSendMessage({ type: 'LOG_INTERACTION', word, interaction: 'hover' });
 });
 
 document.addEventListener('mouseout', (e) => {
-    if (e.target.closest('.adaptiread-highlight')) hideTooltip();
+    if (e.relatedTarget?.closest?.('.adaptiread-tooltip, .adaptiread-highlight')) return;
+    hideTooltip();
 });
 
 async function showTooltip(target, word) {
     if (activeTooltip) hideTooltip();
-
     activeTooltip = document.createElement('div');
+    activeTooltip._target = target;
     activeTooltip.className = 'adaptiread-tooltip';
     activeTooltip.innerHTML = `<div class="adaptiread-loading">Loading definition...</div>`;
     document.body.appendChild(activeTooltip);
 
     const rect = target.getBoundingClientRect();
     const tooltipWidth = 280;
-
     const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
     const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
 
     let left = rect.left + scrollLeft + (rect.width / 2) - (tooltipWidth / 2);
     let top = rect.top + scrollTop - 10;
-
     if (left < 10) left = 10;
     if (left + tooltipWidth > window.innerWidth + scrollLeft - 10) left = window.innerWidth + scrollLeft - tooltipWidth - 10;
 
     activeTooltip.style.position = 'absolute';
     activeTooltip.style.top = `${top}px`;
     activeTooltip.style.left = `${left}px`;
-    activeTooltip.style.transform = `translateY(-100%)`;
+    activeTooltip.style.transform = 'translateY(-100%)';
 
-    requestAnimationFrame(() => {
-        if (activeTooltip) activeTooltip.classList.add('visible');
-    });
+    requestAnimationFrame(() => { if (activeTooltip) activeTooltip.classList.add('visible'); });
 
     const data = await safeSendMessage({ type: 'GET_DEFINITION', word });
-    if (!chrome.runtime?.id || !activeTooltip) return;
+    if (!activeTooltip || activeTooltip._target !== target) return;
 
     if (data) {
         activeTooltip.innerHTML = `
             <div class="word">${data.word}</div>
             <div class="pos">${data.partOfSpeech}</div>
             <div class="definition">${data.definition}</div>
-            ${data.synonym ? `<div class="synonym">Synonym: ${data.synonym}</div>` : ''}
+            <div class="synonym">${data.synonym ? `Synonym: ${data.synonym}` : ''}</div>
+            <div class="tutor-actions"><button class="btn-known" id="adaptiread-mark-known">I Already Know This</button></div>
         `;
+        activeTooltip.querySelector('#adaptiread-mark-known').onclick = (e) => {
+            e.stopPropagation();
+            safeSendMessage({ type: 'MARK_KNOWN', word: data.word });
+            target.classList.add('mastered');
+            setTimeout(() => target.replaceWith(target.textContent), 500);
+            hideTooltip();
+        };
     } else {
-        activeTooltip.innerHTML = `<div class="definition">Definition not found for "${word}".</div>`;
+        activeTooltip.innerHTML = `<div class="definition">Definition not found.</div>`;
     }
 }
 
@@ -533,3 +324,88 @@ function hideTooltip() {
         activeTooltip = null;
     }
 }
+
+// --- PASSIVE TRACKING ---
+const trackedWordsOnPage = new Set();
+const ignoreObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            const word = entry.target.getAttribute('data-word');
+            entry.target._viewTimer = setTimeout(() => {
+                if (!trackedWordsOnPage.has(word)) {
+                    trackedWordsOnPage.add(word);
+                    safeSendMessage({ type: 'LOG_INTERACTION', word, interaction: 'context_seen' });
+                }
+            }, 3000);
+        } else clearTimeout(entry.target._viewTimer);
+    });
+}, { threshold: 0.5 });
+
+function attachIgnoreObserverToHighlights() {
+    document.querySelectorAll('.adaptiread-highlight').forEach(el => ignoreObserver.observe(el));
+}
+
+// --- INIT ---
+console.log('AdaptiRead: Content script loaded');
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'START_SIMPLIFY') {
+        startAdaptiRead();
+    }
+});
+
+chrome.storage.local.get(['enabled'], (res) => {
+    isEnabled = res.enabled !== false;
+    console.log('AdaptiRead: isEnabled =', isEnabled);
+    if (isEnabled && chrome.runtime?.id) {
+        injectStyles();
+        showAskToSimplifyPopup();
+    }
+});
+
+const TOOLTIP_CSS = `
+    .adaptiread-highlight {
+        background: linear-gradient(120deg, rgba(147, 51, 234, 0.15) 0%, rgba(79, 70, 229, 0.15) 100%);
+        border-bottom: 2px solid rgba(147, 51, 234, 0.4);
+        cursor: help;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        border-radius: 2px;
+        padding: 0 1px;
+    }
+    .adaptiread-highlight:hover { background: rgba(147, 51, 234, 0.25); border-bottom-color: rgba(147, 51, 234, 0.8); }
+    .adaptiread-tooltip {
+        position: absolute; z-index: 2147483647; width: 280px; background: rgba(15, 15, 20, 0.95);
+        backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px;
+        padding: 16px; color: white; font-family: 'Inter', sans-serif; opacity: 0; visibility: hidden;
+        transition: all 0.3s ease;
+    }
+    .adaptiread-tooltip.visible { opacity: 1; visibility: visible; }
+    .adaptiread-tooltip .word { font-size: 18px; font-weight: 700; margin-bottom: 4px; font-family: 'Outfit', sans-serif; }
+    .adaptiread-tooltip .pos { font-size: 11px; text-transform: uppercase; color: #9333ea; margin-bottom: 12px; }
+    .adaptiread-tooltip .definition { font-size: 14px; line-height: 1.5; color: rgba(255, 255, 255, 0.8); margin-bottom: 12px; }
+    .adaptiread-tooltip .btn-known { width: 100%; background: #9333ea; border: none; border-radius: 6px; padding: 8px; color: white; font-weight: 600; cursor: pointer; }
+    .adaptiread-global-loading {
+        position: fixed; top: 20px; right: 20px; z-index: 2147483647;
+        background: rgba(15, 15, 20, 0.95); backdrop-filter: blur(12px);
+        padding: 12px 20px; border-radius: 50px; border: 1px solid rgba(255, 255, 255, 0.1);
+        color: white; display: flex; align-items: center; gap: 12px; font-size: 13px;
+    }
+    .adaptiread-spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.1); border-top-color: #9333ea; border-radius: 50%; animation: adaptiread-spin 0.8s linear infinite; }
+    @keyframes adaptiread-spin { to { transform: rotate(360deg); } }
+    .adaptiread-ask-popup {
+        position: fixed; top: 20px; right: 20px; z-index: 2147483647; width: 300px;
+        background: rgba(15, 15, 20, 0.95); backdrop-filter: blur(12px); padding: 20px;
+        border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); color: white;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-family: 'Inter', sans-serif;
+        animation: adaptiread-slide-in 0.4s ease-out;
+    }
+    @keyframes adaptiread-slide-in {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    .adaptiread-ask-popup .title { font-size: 16px; font-weight: 700; margin-bottom: 8px; font-family: 'Outfit', sans-serif; }
+    .adaptiread-ask-popup .desc { font-size: 13px; color: rgba(255,255,255,0.7); margin-bottom: 16px; line-height: 1.4; }
+    .adaptiread-ask-popup .actions { display: flex; gap: 10px; }
+    .adaptiread-ask-popup button { flex: 1; padding: 10px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; font-size: 12px; transition: all 0.2s; }
+    .adaptiread-ask-popup .btn-yes { background: #9333ea; color: white; }
+    .adaptiread-ask-popup .btn-no { background: rgba(255,255,255,0.1); color: white; }
+`;
