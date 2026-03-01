@@ -1,92 +1,82 @@
-/* AdaptiRead Content Styles - Redesigned for Automatic Wipe */
+/* AdaptiRead Content Styles - Stable Overlapping Grid */
 .adaptiread-wrapper {
-    position: relative;
-    display: inline-block;
-    vertical-align: bottom;
-    line-height: normal;
-    transition: all 0.3s ease;
+    display: inline-grid;
+    vertical-align: baseline;
     cursor: help;
+    margin: 0;
+    padding: 0;
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+    line-height: normal;
+    overflow: visible;
+    /* Allow highlight to show */
+    white-space: nowrap;
+    /* Prevent internal wrapping which causes jitter */
 }
 
 .adaptiread-original,
 .adaptiread-simplified {
+    grid-area: 1 / 1;
+    /* Stack exactly on top of each other */
+    white-space: nowrap;
+    transition: opacity 0.4s ease, transform 0.4s ease;
     display: inline-block;
+    width: auto;
 }
 
 .adaptiread-simplified {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    color: #00e5ff;
+    opacity: 0;
+    pointer-events: none;
+    background-color: #00e5ff !important;
+    color: #0a0a14 !important;
+    border-radius: 4px;
     font-weight: 700;
-    transition: width 0.8s cubic-bezier(0.65, 0, 0.35, 1);
-    border-bottom: 2px solid #00e5ff;
+    padding: 0 4px;
+    transform: translateY(2px);
+    /* Slight offset for wipe feel */
 }
 
 .adaptiread-original {
-    color: inherit;
-    transition: transform 0.8s cubic-bezier(0.65, 0, 0.35, 1), opacity 0.5s;
-    white-space: nowrap;
+    opacity: 1;
+    transform: translateY(0);
 }
 
-/* Wipe Animation Active State */
+/* Page Load Wipe State */
 .adaptiread-wrapper.active .adaptiread-simplified {
-    width: 100%;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
 }
 
 .adaptiread-wrapper.active .adaptiread-original {
     opacity: 0;
-    transform: translateY(-5px);
+    pointer-events: none;
+    /* We don't set width: 0 here to keep the container size based on the SIMPLIFIED word */
 }
 
-/* Hover reveal effect */
-.adaptiread-wrapper:hover .adaptiread-simplified {
-    filter: brightness(1.2);
+/* Hover Reveal - Seamless In-Sentence Swap */
+/* When hovering, we swap visibility but KEEP the container size of the simplified word 
+   to prevent the "spasm" caused by line-recalculation. */
+.adaptiread-wrapper.active:hover .adaptiread-simplified {
+    opacity: 0 !important;
+    transition: none !important;
 }
 
-.adaptiread-tooltip {
-    position: absolute;
-    bottom: 125%;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(10, 10, 20, 0.95);
-    color: white;
-    padding: 12px;
-    border-radius: 8px;
-    border: 1px solid rgba(0, 229, 255, 0.3);
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
-    z-index: 10000;
-    width: 240px;
-    font-family: 'Inter', sans-serif;
-    font-size: 13px;
-    line-height: 1.4;
-    backdrop-filter: blur(16px);
-    transition: opacity 0.2s ease-out;
+.adaptiread-wrapper.active:hover .adaptiread-original {
+    opacity: 1 !important;
+    transition: none !important;
 }
 
-.adaptiread-tooltip strong {
-    color: #00e5ff;
-    display: block;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 6px;
+/* Highlight Mode Styling */
+.adaptiread-highlight {
+    background-color: rgba(0, 229, 255, 0.2);
+    border-radius: 4px;
+    padding: 0 2px;
+    cursor: help;
 }
 
-.adaptiread-tooltip .synonym {
-    font-size: 16px;
-    font-weight: 700;
-    margin-bottom: 8px;
-    display: block;
-    color: white;
-}
-
-.adaptiread-tooltip .definition {
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 12px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-    padding-top: 8px;
+.adaptiread-highlight.simplified-done {
+    background-color: #00e5ff !important;
+    color: #0a0a14 !important;
+    padding: 0 4px;
 }

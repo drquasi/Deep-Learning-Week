@@ -10,16 +10,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     const wordsLearnedEl = document.getElementById('words-learned');
 
     // Load saved settings
-    const settings = await chrome.storage.local.get(['enabled', 'level', 'scannedCount', 'learnedCount', 'autoSimplify']);
+    const settings = await chrome.storage.local.get(['enabled', 'level', 'scannedCount', 'learnedCount', 'autoSimplify', 'openaiKey']);
 
     masterToggle.checked = settings.enabled !== false;
     autoSimplifyToggle.checked = settings.autoSimplify === true; // Opt-in
     if (settings.level) levelSelect.value = settings.level;
+    if (settings.openaiKey) document.getElementById('openai-key').value = settings.openaiKey;
 
     wordsScannedEl.textContent = settings.scannedCount || 0;
     wordsLearnedEl.textContent = settings.learnedCount || 0;
 
     // Event Listeners
+    document.getElementById('save-key').addEventListener('click', () => {
+        const key = document.getElementById('openai-key').value.trim();
+        chrome.storage.local.set({ openaiKey: key }, () => {
+            const btn = document.getElementById('save-key');
+            const originalText = btn.textContent;
+            btn.textContent = 'Saved!';
+            btn.style.background = '#4BB543';
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.style.background = '';
+            }, 2000);
+        });
+    });
+
     masterToggle.addEventListener('change', () => {
         chrome.storage.local.set({ enabled: masterToggle.checked });
     });

@@ -4,9 +4,11 @@
  */
 
 const DB_NAME = 'AdaptiReadDB';
-const DB_VERSION = 1;
+const DB_VERSION = 3; // Incremented to clear legacy replacements data
 const STORE_VOCAB = 'vocabulary';
 const STORE_INTERACTIONS = 'interactions';
+const STORE_ARTICLES = 'articles';
+const STORE_CONTEXTS = 'contexts';
 
 class AdaptiReadStorage {
     constructor() {
@@ -30,6 +32,16 @@ class AdaptiReadStorage {
                     const interactionStore = db.createObjectStore(STORE_INTERACTIONS, { keyPath: 'id', autoIncrement: true });
                     interactionStore.createIndex('word', 'word', { unique: false });
                 }
+
+                // Article Cache Store: { url, replacements, timestamp }
+                if (!db.objectStoreNames.contains(STORE_ARTICLES)) {
+                    db.createObjectStore(STORE_ARTICLES, { keyPath: 'url' });
+                }
+
+                // Contextual Word Cache Store: { sentenceHash, replacements, timestamp }
+                if (!db.objectStoreNames.contains(STORE_CONTEXTS)) {
+                    db.createObjectStore(STORE_CONTEXTS, { keyPath: 'sentenceHash' });
+                }
             };
 
             request.onsuccess = (event) => {
@@ -38,6 +50,30 @@ class AdaptiReadStorage {
             };
 
             request.onerror = (event) => reject(event.target.error);
+        });
+    }
+
+    async getArticle(url) {
+        return this.get(STORE_ARTICLES, url);
+    }
+
+    async saveArticle(url, replacements) {
+        return this.put(STORE_ARTICLES, {
+            url,
+            replacements,
+            timestamp: Date.now()
+        });
+    }
+
+    async getContext(sentenceHash) {
+        return this.get(STORE_CONTEXTS, sentenceHash);
+    }
+
+    async saveContext(sentenceHash, replacements) {
+        return this.put(STORE_CONTEXTS, {
+            sentenceHash,
+            replacements,
+            timestamp: Date.now()
         });
     }
 
