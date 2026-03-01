@@ -1,0 +1,92 @@
+/* AdaptiRead Content Styles - Redesigned for Automatic Wipe */
+.adaptiread-wrapper {
+    position: relative;
+    display: inline-block;
+    vertical-align: bottom;
+    line-height: normal;
+    transition: all 0.3s ease;
+    cursor: help;
+}
+
+.adaptiread-original,
+.adaptiread-simplified {
+    display: inline-block;
+}
+
+.adaptiread-simplified {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    color: #00e5ff;
+    font-weight: 700;
+    transition: width 0.8s cubic-bezier(0.65, 0, 0.35, 1);
+    border-bottom: 2px solid #00e5ff;
+}
+
+.adaptiread-original {
+    color: inherit;
+    transition: transform 0.8s cubic-bezier(0.65, 0, 0.35, 1), opacity 0.5s;
+    white-space: nowrap;
+}
+
+/* Wipe Animation Active State */
+.adaptiread-wrapper.active .adaptiread-simplified {
+    width: 100%;
+}
+
+.adaptiread-wrapper.active .adaptiread-original {
+    opacity: 0;
+    transform: translateY(-5px);
+}
+
+/* Hover reveal effect */
+.adaptiread-wrapper:hover .adaptiread-simplified {
+    filter: brightness(1.2);
+}
+
+.adaptiread-tooltip {
+    position: absolute;
+    bottom: 125%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10, 10, 20, 0.95);
+    color: white;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(0, 229, 255, 0.3);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+    z-index: 10000;
+    width: 240px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    line-height: 1.4;
+    backdrop-filter: blur(16px);
+    transition: opacity 0.2s ease-out;
+}
+
+.adaptiread-tooltip strong {
+    color: #00e5ff;
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.adaptiread-tooltip .synonym {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    display: block;
+    color: white;
+}
+
+.adaptiread-tooltip .definition {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 8px;
+}

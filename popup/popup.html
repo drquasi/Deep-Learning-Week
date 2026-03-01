@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AdaptiRead</title>
+    <link rel="stylesheet" href="popup.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;700&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <div class="glass-container">
+        <header>
+            <h1>AdaptiRead</h1>
+        </header>
+
+        <main>
+            <div class="status-card">
+                <label class="switch-container">
+                    <span class="label-text">Simplification</span>
+                    <input type="checkbox" id="master-toggle" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div class="status-card">
+                <label class="switch-container">
+                    <span class="label-text">Auto-Simplify (Wipe)</span>
+                    <input type="checkbox" id="auto-simplify-toggle" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <div class="level-section">
+                <label for="level-select">Learning Level</label>
+                <div class="custom-select">
+                    <select id="level-select">
+                        <option value="A1">A1 Beginner</option>
+                        <option value="A2">A2 Elementary</option>
+                        <option value="B1">B1 Intermediate</option>
+                        <option value="B2">B2 Upper Int</option>
+                        <option value="C1">C1 Advanced</option>
+                        <option value="C2">C2 Proficiency</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <span class="stat-value" id="words-scanned">0</span>
+                    <span class="stat-label">Words Scanned</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value" id="words-learned">0</span>
+                    <span class="stat-label">Words Known</span>
+                </div>
+            </div>
+
+            <button id="view-insights" class="primary-btn">View Weekly Insights</button>
+        </main>
+
+        <div id="insights-panel" class="hidden">
+            <div class="panel-header">
+                <button id="close-insights" class="icon-btn">←</button>
+                <h2>Weekly Digest</h2>
+            </div>
+            <div class="insights-content">
+                <p class="insight-tip"><strong>Insight:</strong> You've been active in Technology articles this week!
+                </p>
+                <p class="insight-tip"><strong>Recommendation:</strong> Try focusing on these 5 academic verbs found in
+                    your reading.</p>
+                <ul id="word-list" class="mini-list">
+                    <li>Accelerate</li>
+                    <li>Correlate</li>
+                    <li>Derive</li>
+                    <li>Validate</li>
+                    <li>Framework</li>
+                </ul>
+            </div>
+        </div>
+
+        <footer>
+            <p>AdaptiRead v1.0 • Privacy Focused</p>
+        </footer>
+    </div>
+    <script src="popup.js"></script>
+</body>
+
+</html>
