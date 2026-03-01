@@ -34,13 +34,15 @@ app.post('/simplify', async (req, res) => {
                 messages: [
                     {
                         role: 'system',
-                        content: `You are a vocabulary assistant. Identify advanced, academic, or complex English words in the provided sentences.
-                            Return a JSON object where each key is a sentence and each value is an ARRAY of strings (the complex words found in that sentence).
+                        content: `You are a vocabulary assistant. Identify advanced, academic, technical, or specialized ENGLISH words.
                             STRICT RULES:
-                            1. DO NOT identify proper nouns (names of people, places, etc.).
-                            2. DO NOT identify common or simple words.
-                            3. Focus on words that a non-native speaker or a young student might find difficult.
-                            Example: {"The melancholy king sat alone.": ["melancholy"]}`
+                            1. Include words that a beginner or intermediate English learner would find difficult.
+                            2. Include specialized terminology (religious, technical, scientific, literary).
+                            3. ONLY identify English words. 
+                            4. DO NOT identify proper nouns (names of people, places, brands).
+                            5. DO NOT identify common or simple words.
+                            6. Return a JSON object with a single key "complex_words" containing an array of unique strings.
+                            Example: {"complex_words": ["melancholy", "capricious"]}`
                     },
                     {
                         role: 'user',

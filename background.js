@@ -5,7 +5,6 @@ chrome.runtime.onInstalled.addListener(async () => {
     chrome.storage.local.set({
         enabled: true,
         autoSimplify: true,
-        level: 'A2',
         scannedCount: 0,
         learnedCount: 0
     });
@@ -70,125 +69,158 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 });
 
+function normalizeSentence(text) {
+    if (!text) return '';
+    return text.toLowerCase()
+        .replace(/\s+/g, ' ')
+        .replace(/[^\w\s\-\'\u00C0-\u017F]/g, '')
+        .trim();
+}
+
 async function processBatch(url, sentences) {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
 
+        const CACHE_VERSION = 'v2_lenient';
         const cachedArticle = await self.adaptiReadStorage.getArticle(url);
-        if (cachedArticle) {
+        if (cachedArticle && cachedArticle.version === CACHE_VERSION) {
             console.log('Serving from Article Cache:', url);
-            return cachedArticle.replacements; // Note: 'replacements' now stores identification array
+            return cachedArticle.replacements;
         }
 
         const allIdentifications = {};
         const sentencesToAnalyze = [];
-        const sentenceHashes = [];
+        const normalizedSentences = sentences.map(s => normalizeSentence(s));
 
-        for (const sentence of sentences) {
-            const hash = await hashSentence(sentence);
+        for (let idx = 0; idx < sentences.length; idx++) {
+            const original = sentences[idx];
+            const normalized = normalizedSentences[idx];
+            if (!normalized) continue;
+
+            const hash = await hashSentence(normalized);
             const cachedContext = await self.adaptiReadStorage.getContext(hash);
 
             if (cachedContext) {
-                allIdentifications[sentence] = cachedContext.replacements;
+                allIdentifications[original] = cachedContext.replacements;
             } else {
-                sentencesToAnalyze.push(sentence);
-                sentenceHashes.push(hash);
+                sentencesToAnalyze.push({ original, normalized, hash });
             }
         }
 
-        console.log(`AdaptiRead Background: Processing ${sentencesToAnalyze.length} new sentences with character limits`);
+        if (sentencesToAnalyze.length === 0) {
+            await self.adaptiReadStorage.saveArticle(url, allIdentifications);
+            return allIdentifications;
+        }
 
-        const MAX_CHARS = 5000;
-        const CHUNK_SIZE = 15;
+        console.log(`AdaptiRead Background: Processing ${sentencesToAnalyze.length} new segments`);
 
-        let i = 0;
-        while (i < sentencesToAnalyze.length) {
-            const chunk = [];
-            const chunkHashes = [];
-            let currentChars = 0;
+        const MAX_CHARS = 5500;
+        const chunks = [];
+        let currentChunk = [];
+        let currentChars = 0;
 
-            while (i < sentencesToAnalyze.length && chunk.length < CHUNK_SIZE) {
-                const s = sentencesToAnalyze[i];
-                if (currentChars + s.length > MAX_CHARS && chunk.length > 0) break;
-
-                chunk.push(s);
-                chunkHashes.push(sentenceHashes[i]);
-                currentChars += s.length;
-                i++;
+        for (const item of sentencesToAnalyze) {
+            if (currentChars + item.normalized.length > MAX_CHARS && currentChunk.length > 0) {
+                chunks.push(currentChunk);
+                currentChunk = [];
+                currentChars = 0;
             }
+            currentChunk.push(item);
+            currentChars += item.normalized.length;
+        }
+        if (currentChunk.length > 0) chunks.push(currentChunk);
 
-            console.log(`AdaptiRead Background: Sending chunk (${chunk.length} sentences, ~${currentChars} chars)`);
+        const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
 
-            let response;
-            const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
+        // Concurrent processing
+        const CONCURRENCY = 3;
+        const allWordsFound = new Set();
 
-            try {
-                if (openaiKey) {
-                    response = await fetch(OPENAI_API_URL, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${openaiKey}`
-                        },
-                        body: JSON.stringify({
-                            model: 'gpt-3.5-turbo',
-                            messages: [
-                                {
-                                    role: 'system',
-                                    content: `Identify complex, advanced, or academic words. Return a JSON object where keys are EXACT sentences from the input. Example: {"The melancholy king sat alone.": ["melancholy"]}`
-                                },
-                                { role: 'user', content: JSON.stringify(chunk) }
-                            ],
-                            response_format: { type: 'json_object' }
-                        })
-                    });
-                } else {
-                    response = await fetch(PROXY_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ sentences: chunk })
-                    });
-                }
+        for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+            const batch = chunks.slice(i, i + CONCURRENCY);
+            await Promise.all(batch.map(async (chunk) => {
+                const chunkTexts = chunk.map(item => item.normalized);
 
-                if (!response.ok) {
-                    console.error('AdaptiRead Background: Chunk request failed', response.status);
-                    continue;
-                }
-
-                const data = await response.json();
-                let aiReplacements;
                 try {
-                    aiReplacements = openaiKey ? JSON.parse(data.choices[0].message.content) : data;
-                } catch (e) {
-                    aiReplacements = data;
-                }
-
-                const aiKeys = Object.keys(aiReplacements).reduce((acc, k) => {
-                    acc[k.trim().toLowerCase()] = aiReplacements[k];
-                    return acc;
-                }, {});
-
-                for (let j = 0; j < chunk.length; j++) {
-                    const sentence = chunk[j];
-                    const hash = chunkHashes[j];
-                    const normalizedSentence = sentence.trim().toLowerCase();
-                    const words = aiKeys[normalizedSentence] || [];
-
-                    if (Array.isArray(words) && words.length > 0) {
-                        await self.adaptiReadStorage.saveContext(hash, words);
-                        allIdentifications[sentence] = words;
+                    let response;
+                    if (openaiKey) {
+                        response = await fetch(OPENAI_API_URL, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${openaiKey}`
+                            },
+                            body: JSON.stringify({
+                                model: 'gpt-3.5-turbo',
+                                messages: [
+                                    {
+                                        role: 'system',
+                                        content: `Identify all complex, academic, or specialized English words present in the provided text.
+                                        TARGET AUDIENCE: ESL Adult Beginner (e.g., Chinese university student).
+                                        RULES:
+                                        1. Be LENIENT. Include any word that a student with limited reading experience might struggle with.
+                                        2. Include academic vocabulary (AWL) and domain-specific terms.
+                                        3. Return a JSON object with a single key "complex_words" containing an array of unique words.
+                                        4. Exclude very common words and proper nouns.`
+                                    },
+                                    { role: 'user', content: JSON.stringify(chunkTexts) }
+                                ],
+                                response_format: { type: 'json_object' }
+                            })
+                        });
                     } else {
-                        await self.adaptiReadStorage.saveContext(hash, []);
-                        allIdentifications[sentence] = [];
+                        response = await fetch(PROXY_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sentences: chunkTexts })
+                        });
+                    }
+
+                    if (!response.ok) {
+                        for (const item of chunk) allIdentifications[item.original] = [];
+                        return;
+                    }
+
+                    const data = await response.json();
+                    let result;
+                    try {
+                        result = openaiKey ? JSON.parse(data.choices[0].message.content) : data;
+                    } catch (e) { result = data; }
+
+                    // Robust parsing: extract all words found in result regardless of structure
+                    let words = [];
+                    if (result.complex_words && Array.isArray(result.complex_words)) {
+                        words = result.complex_words;
+                    } else if (Array.isArray(result)) {
+                        words = result;
+                    } else if (typeof result === 'object' && result !== null) {
+                        // Legacy/Fallback: Extract all array values from the object
+                        Object.values(result).forEach(val => {
+                            if (Array.isArray(val)) words.push(...val);
+                        });
+                    }
+
+                    const uniqueWords = [...new Set(words)];
+                    const filtered = uniqueWords.filter(word => /^[\w\-\'\u00C0-\u017F\s]+$/.test(word) && word.length > 2);
+
+                    // Broadcast these words back to EVERY segment in this chunk
+                    for (const item of chunk) {
+                        const segmentWords = filtered.filter(w => item.normalized.includes(w.toLowerCase()));
+                        await self.adaptiReadStorage.saveContext(item.hash, segmentWords);
+
+                        // Always ensure an entry exists even if empty to signal "finished scanning"
+                        allIdentifications[item.original] = segmentWords;
+                    }
+                } catch (err) {
+                    console.error('Batch chunk error:', err);
+                    for (const item of chunk) {
+                        if (!allIdentifications[item.original]) allIdentifications[item.original] = [];
                     }
                 }
-            } catch (err) {
-                console.error('AdaptiRead Background: Chunk fetch error', err);
-            }
+            }));
         }
 
-        await self.adaptiReadStorage.saveArticle(url, allIdentifications);
-        console.log('AdaptiRead Background: Saved full article results for', url);
+        await self.adaptiReadStorage.saveArticle(url, allIdentifications, CACHE_VERSION);
         return allIdentifications;
 
     } catch (err) {
@@ -202,24 +234,19 @@ async function fetchDefinition(word) {
         console.log('AdaptiRead Background: Fetching definition for:', word);
         const encoded = encodeURIComponent(word.toLowerCase());
         const response = await fetch(`${DICTIONARY_API_URL}${encoded}`);
-        if (!response.ok) {
-            console.log('AdaptiRead Background: No definition found in dictionary API');
-            return null;
-        }
+        if (!response.ok) return null;
 
         const data = await response.json();
         if (!data || !data[0]) return null;
 
         const entry = data[0];
         const meaning = entry.meanings[0];
-        const results = {
+        return {
             word: entry.word,
             definition: meaning.definitions[0].definition,
             partOfSpeech: meaning.partOfSpeech,
             synonym: meaning.synonyms && meaning.synonyms[0]
         };
-        console.log('AdaptiRead Background: Final Meaning extracted:', results);
-        return results;
     } catch (err) {
         console.error('Dictionary API Error:', err);
         return null;
@@ -227,8 +254,9 @@ async function fetchDefinition(word) {
 }
 
 async function hashSentence(sentence) {
+    const CACHE_VERSION = 'v2_lenient'; // Increment this to force new analysis
     const encoder = new TextEncoder();
-    const data = encoder.encode(sentence.trim().toLowerCase());
+    const data = encoder.encode(CACHE_VERSION + sentence);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
@@ -238,10 +266,19 @@ async function handleInteraction(word, type) {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
         const delta = INTERACTION_IMPACT[type] || 0;
-        const updatedData = await self.adaptiReadStorage.updateWordProficiency(word, delta, type);
-        console.log(`Proficiency update for "${word}":`, updatedData.proficiency);
+        await self.adaptiReadStorage.updateWordProficiency(word, delta, type);
     } catch (err) {
         console.error('Interaction Error:', err);
+    }
+}
+
+async function getAnalytics() {
+    try {
+        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
+        return await self.adaptiReadStorage.getAnalytics();
+    } catch (err) {
+        console.error('Analytics Error:', err);
+        return null;
     }
 }
 

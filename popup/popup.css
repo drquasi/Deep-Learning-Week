@@ -35,6 +35,7 @@ body {
 header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   margin-bottom: 24px;
 }
@@ -102,6 +103,27 @@ input:checked+.slider::before {
 
 .level-section {
   margin-bottom: 20px;
+}
+
+.hidden-panel {
+  display: none;
+  animation: slideDown 0.3s ease-out;
+}
+
+.hidden-panel.visible {
+  display: block;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .level-section label {

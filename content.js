@@ -3,6 +3,17 @@ let isEnabled = true;
 let processedNodes = new WeakSet();
 let scanTimeout = null;
 let activeTooltip = null;
+let globalLoadingIndicator = null;
+let hasScannedOnThisPage = false;
+let isScanningActive = false;
+
+function normalizeSentence(text) {
+    if (!text) return '';
+    return text.toLowerCase()
+        .replace(/\s+/g, ' ')
+        .replace(/[^\w\s\-\'\u00C0-\u017F]/g, '')
+        .trim();
+}
 
 const TOOLTIP_CSS = `
 .adaptiread-highlight {
@@ -66,7 +77,100 @@ const TOOLTIP_CSS = `
 }
 .adaptiread-loading {
     color: #999;
+    font-size: 14px;
     font-style: italic;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Ask to Simplify Popup */
+.adaptiread-ask-popup {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 2147483647;
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+    padding: 16px 20px;
+    width: 320px;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    border: 1px solid rgba(0,123,255,0.1);
+    animation: adaptiread-slideInRight 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+@keyframes adaptiread-slideInRight {
+    from { opacity: 0; transform: translateX(50px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+.adaptiread-ask-popup .title {
+    font-weight: 700;
+    font-size: 16px;
+    color: #1a1a1b;
+    margin-bottom: 4px;
+}
+.adaptiread-ask-popup .desc {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 16px;
+}
+.adaptiread-ask-popup .actions {
+    display: flex;
+    gap: 10px;
+}
+.adaptiread-ask-popup button {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+}
+.adaptiread-ask-popup .btn-yes {
+    background: #007bff;
+    color: white;
+}
+.adaptiread-ask-popup .btn-yes:hover { background: #0056b3; }
+.adaptiread-ask-popup .btn-no {
+    background: #f0f2f5 !important;
+    color: #4b4b4b !important;
+}
+.adaptiread-ask-popup .btn-no:hover { background: #e4e6e9 !important; }
+
+/* Global Loading Indicator */
+.adaptiread-global-loading {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 2147483647;
+    background: white;
+    padding: 12px 20px;
+    border-radius: 50px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    color: #007bff;
+    border: 1px solid rgba(0,123,255,0.1);
+    pointer-events: none;
+}
+.adaptiread-spinner {
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(0,123,255,0.1);
+    border-top: 3px solid #007bff;
+    border-radius: 50%;
+    animation: adaptiread-spin 1s linear infinite;
+}
+@keyframes adaptiread-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 `;
 
@@ -96,18 +200,89 @@ function safeSendMessage(message) {
     });
 }
 
-chrome.storage.local.get(['enabled'], (result) => {
+chrome.storage.local.get(['enabled', 'simplifiedDomains'], (result) => {
     console.log('AdaptiRead: Settings loaded', result);
     isEnabled = result.enabled !== false;
+    const simplifiedDomains = result.simplifiedDomains || [];
+    const currentDomain = window.location.hostname;
+
     if (isEnabled && chrome.runtime?.id) {
         console.log('AdaptiRead: Initializing...');
         injectStyles();
-        debouncedScan();
-        setupObserver();
+
+        if (simplifiedDomains.includes(currentDomain)) {
+            console.log('AdaptiRead: Auto-starting for domain:', currentDomain);
+            startAdaptiRead();
+        } else {
+            showAskToSimplifyPopup();
+        }
     } else {
         console.log('AdaptiRead: Disabled or ID missing');
     }
 });
+
+function showAskToSimplifyPopup() {
+    if (hasScannedOnThisPage || document.getElementById('adaptiread-ask-popup')) return;
+
+    const popup = document.createElement('div');
+    popup.id = 'adaptiread-ask-popup';
+    popup.className = 'adaptiread-ask-popup';
+    popup.innerHTML = `
+        <div class="title">✨ Simplify Reading?</div>
+        <div class="desc">AdaptiRead can scan this page to highlight complex words and provide definitions.</div>
+        <div class="actions">
+            <button class="btn-yes">Yes, Simplify</button>
+            <button class="btn-no">Not Now</button>
+        </div>
+    `;
+
+    document.body.appendChild(popup);
+
+    popup.querySelector('.btn-yes').addEventListener('click', () => {
+        const currentDomain = window.location.hostname;
+        chrome.storage.local.get(['simplifiedDomains'], (res) => {
+            const list = res.simplifiedDomains || [];
+            if (!list.includes(currentDomain)) {
+                list.push(currentDomain);
+                chrome.storage.local.set({ simplifiedDomains: list });
+            }
+        });
+        popup.remove();
+        startAdaptiRead();
+    });
+
+    popup.querySelector('.btn-no').addEventListener('click', () => {
+        popup.remove();
+    });
+
+    // Auto-dismiss after 15 seconds if no interaction
+    setTimeout(() => { if (popup.parentElement) popup.remove(); }, 15000);
+}
+
+function startAdaptiRead() {
+    if (hasScannedOnThisPage) return;
+    isScanningActive = true;
+    debouncedScan();
+    setupObserver();
+}
+
+function showLoadingIndicator() {
+    if (globalLoadingIndicator) return;
+    globalLoadingIndicator = document.createElement('div');
+    globalLoadingIndicator.className = 'adaptiread-global-loading';
+    globalLoadingIndicator.innerHTML = `
+        <div class="adaptiread-spinner"></div>
+        <span>Analyzing vocabulary...</span>
+    `;
+    document.body.appendChild(globalLoadingIndicator);
+}
+
+function hideLoadingIndicator() {
+    if (globalLoadingIndicator) {
+        globalLoadingIndicator.remove();
+        globalLoadingIndicator = null;
+    }
+}
 
 function setupObserver() {
     console.log('AdaptiRead: Setting up observer');
@@ -136,8 +311,10 @@ function debouncedScan() {
 }
 
 async function scanAndProcess() {
-    if (!isEnabled || !chrome.runtime?.id) return;
+    if (!isEnabled || !chrome.runtime?.id || !isScanningActive) return;
     console.log('AdaptiRead: Scanning page...');
+    showLoadingIndicator();
+    let start = performance.now();
 
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
     let node;
@@ -151,31 +328,30 @@ async function scanAndProcess() {
         const forbidden = ['SCRIPT', 'STYLE', 'TEXTAREA', 'NOSCRIPT', 'CODE', 'PRE', 'INPUT', 'SELECT'];
         if (forbidden.includes(tagName) || parent.closest('.adaptiread-highlight')) continue;
 
-        // More inclusive block detection
-        const blockParent = parent.closest('p, div, h1, h2, h3, h4, h5, h6, li, td, th, blockquote, dt, dd') || parent;
+        const blockParent = parent.closest('p, div, h1, h2, h3, h4, h5, h6, li, td, th, blockquote, dt, dd, section, article, header, footer, main, aside') || parent;
         if (!blockMap.has(blockParent)) blockMap.set(blockParent, []);
         blockMap.get(blockParent).push(node);
     }
+    console.log(`AdaptiRead: Collected ${blockMap.size} text blocks.`);
 
-    if (blockMap.size === 0) return;
-    console.log(`AdaptiRead: Analyzing ${blockMap.size} text blocks`);
+    if (blockMap.size === 0) {
+        hideLoadingIndicator();
+        return;
+    }
 
     const textToAnalyzeSet = new Set();
-    const blockToTextSegments = new Map(); // blockElement -> array of text segments
+    const blockToTextSegments = new Map();
 
     blockMap.forEach((nodes, blockElement) => {
-        let fullText = blockElement.innerText.trim().replace(/\s+/g, ' ');
-        if (fullText.length <= 20) {
-            nodes.forEach(n => processedNodes.add(n));
-            return;
-        }
+        let fullText = blockElement.textContent.trim().replace(/\s+/g, ' ');
+        if (fullText.length === 0) return;
 
         const segments = [];
-        if (fullText.length > 1500) {
+        if (fullText.length > 2000) {
             const splitSentences = fullText.match(/[^.!?]+[.!?]?(?:\s|$)/g) || [fullText];
             splitSentences.forEach(s => {
                 const trimmed = s.trim();
-                if (trimmed.length > 20) segments.push(trimmed);
+                if (trimmed.length > 0) segments.push(trimmed);
             });
         } else {
             segments.push(fullText);
@@ -186,29 +362,38 @@ async function scanAndProcess() {
     });
 
     const uniqueTexts = Array.from(textToAnalyzeSet);
-    if (uniqueTexts.length === 0) return;
+    if (uniqueTexts.length === 0) {
+        hideLoadingIndicator();
+        return;
+    }
 
-    console.log('AdaptiRead: Fetching analysis for', uniqueTexts.length, 'segments');
     const analysisResults = await safeSendMessage({
         type: 'ANALYZE_PAGE',
         url: window.location.href,
         sentences: uniqueTexts
     });
 
+    console.log(`AdaptiRead: Analysis received for ${uniqueTexts.length} segments in ${(performance.now() - start).toFixed(1)}ms`);
+
     if (!analysisResults) {
-        console.log('AdaptiRead: No results from background');
+        hideLoadingIndicator();
         return;
     }
 
-    // Now process each original block exactly once
+    // Normalize analysis results for robust lookup
+    const normalizedAnalysis = {};
+    Object.keys(analysisResults).forEach(key => {
+        normalizedAnalysis[normalizeSentence(key)] = analysisResults[key];
+    });
+
     blockMap.forEach((nodes, blockElement) => {
         const textSegments = blockToTextSegments.get(blockElement);
         if (!textSegments) return;
 
-        // Aggregate ALL complex words for this block from all its segments
         const allComplexWords = new Set();
         textSegments.forEach(seg => {
-            let words = analysisResults[seg];
+            const normalizedSeg = normalizeSentence(seg);
+            let words = normalizedAnalysis[normalizedSeg];
             if (words) {
                 if (!Array.isArray(words)) words = Object.keys(words);
                 words.forEach(w => allComplexWords.add(w));
@@ -216,12 +401,14 @@ async function scanAndProcess() {
         });
 
         if (allComplexWords.size === 0) {
-            nodes.forEach(n => processedNodes.add(n));
+            const wasAnalyzed = textSegments.some(seg => normalizedAnalysis[normalizeSentence(seg)] !== undefined);
+            if (wasAnalyzed) {
+                nodes.forEach(n => processedNodes.add(n));
+            }
             return;
         }
 
         const wordList = Array.from(allComplexWords).sort((a, b) => b.length - a.length);
-        console.log(`AdaptiRead: Highlighting ${wordList.length} unique words in block`);
 
         nodes.forEach(textNode => {
             if (processedNodes.has(textNode)) return;
@@ -276,6 +463,9 @@ async function scanAndProcess() {
             }
         });
     });
+
+    hasScannedOnThisPage = true;
+    hideLoadingIndicator();
 }
 
 // Tooltip Logic
@@ -300,27 +490,26 @@ async function showTooltip(target, word) {
     document.body.appendChild(activeTooltip);
 
     const rect = target.getBoundingClientRect();
-    const tooltipWidth = 280; // from CSS
+    const tooltipWidth = 280;
 
-    // Position: Absolute logic (includes scroll)
     const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
     const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
 
     let left = rect.left + scrollLeft + (rect.width / 2) - (tooltipWidth / 2);
     let top = rect.top + scrollTop - 10;
 
-    // Viewport boundary check for horizontal overflow
     if (left < 10) left = 10;
     if (left + tooltipWidth > window.innerWidth + scrollLeft - 10) left = window.innerWidth + scrollLeft - tooltipWidth - 10;
 
-    activeTooltip.style.position = 'absolute'; // Override fixed if needed
+    activeTooltip.style.position = 'absolute';
     activeTooltip.style.top = `${top}px`;
     activeTooltip.style.left = `${left}px`;
     activeTooltip.style.transform = `translateY(-100%)`;
 
-    requestAnimationFrame(() => activeTooltip.classList.add('visible'));
+    requestAnimationFrame(() => {
+        if (activeTooltip) activeTooltip.classList.add('visible');
+    });
 
-    // Fetch definition
     const data = await safeSendMessage({ type: 'GET_DEFINITION', word });
     if (!chrome.runtime?.id || !activeTooltip) return;
 
@@ -343,11 +532,4 @@ function hideTooltip() {
         setTimeout(() => el.remove(), 300);
         activeTooltip = null;
     }
-}
-
-function preserveCase(original, simplified) {
-    if (!simplified) return original;
-    if (original === original.toUpperCase() && original.length > 1) return simplified.toUpperCase();
-    if (original[0] === original[0].toUpperCase()) return simplified[0].toUpperCase() + simplified.slice(1).toLowerCase();
-    return simplified.toLowerCase();
 }

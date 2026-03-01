@@ -17,6 +17,7 @@
     <div class="glass-container">
         <header>
             <h1>AdaptiRead</h1>
+            <button id="settings-toggle" class="icon-btn" title="Settings">⚙️</button>
         </header>
 
         <main>
@@ -36,26 +37,15 @@
                 </label>
             </div>
 
-            <div class="level-section">
-                <label for="level-select">Learning Level</label>
-                <div class="custom-select">
-                    <select id="level-select">
-                        <option value="A1">A1 Beginner</option>
-                        <option value="A2">A2 Elementary</option>
-                        <option value="B1">B1 Intermediate</option>
-                        <option value="B2">B2 Upper Int</option>
-                        <option value="C1">C1 Advanced</option>
-                        <option value="C2">C2 Proficiency</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="level-section">
-                <label for="openai-key">OpenAI API Key</label>
-                <div class="input-group" style="display: flex; gap: 8px; margin-top: 8px;">
-                    <input type="password" id="openai-key" placeholder="sk-..." 
-                           style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
-                    <button id="save-key" class="primary-btn" style="min-width: 60px; padding: 0 12px;">Save</button>
+            <div id="settings-panel" class="hidden-panel">
+                <div class="level-section">
+                    <label for="openai-key">OpenAI API Key</label>
+                    <div class="input-group" style="display: flex; gap: 8px; margin-top: 8px;">
+                        <input type="password" id="openai-key" placeholder="sk-..."
+                            style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
+                        <button id="save-key" class="primary-btn"
+                            style="min-width: 60px; padding: 0 12px;">Save</button>
+                    </div>
                 </div>
             </div>
 

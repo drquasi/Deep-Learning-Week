@@ -1,26 +1,29 @@
 document.addEventListener('DOMContentLoaded', async () => {
     const masterToggle = document.getElementById('master-toggle');
-    const levelSelect = document.getElementById('level-select');
+    const autoSimplifyToggle = document.getElementById('auto-simplify-toggle');
+    const wordsScannedEl = document.getElementById('words-scanned');
+    const wordsLearnedEl = document.getElementById('words-learned');
+    const settingsToggle = document.getElementById('settings-toggle');
+    const settingsPanel = document.getElementById('settings-panel');
     const viewInsights = document.getElementById('view-insights');
     const closeInsights = document.getElementById('close-insights');
     const insightsPanel = document.getElementById('insights-panel');
 
-    const autoSimplifyToggle = document.getElementById('auto-simplify-toggle');
-    const wordsScannedEl = document.getElementById('words-scanned');
-    const wordsLearnedEl = document.getElementById('words-learned');
-
     // Load saved settings
-    const settings = await chrome.storage.local.get(['enabled', 'level', 'scannedCount', 'learnedCount', 'autoSimplify', 'openaiKey']);
+    const settings = await chrome.storage.local.get(['enabled', 'scannedCount', 'learnedCount', 'autoSimplify', 'openaiKey']);
 
     masterToggle.checked = settings.enabled !== false;
-    autoSimplifyToggle.checked = settings.autoSimplify === true; // Opt-in
-    if (settings.level) levelSelect.value = settings.level;
+    autoSimplifyToggle.checked = settings.autoSimplify === true;
     if (settings.openaiKey) document.getElementById('openai-key').value = settings.openaiKey;
 
     wordsScannedEl.textContent = settings.scannedCount || 0;
     wordsLearnedEl.textContent = settings.learnedCount || 0;
 
     // Event Listeners
+    settingsToggle.addEventListener('click', () => {
+        settingsPanel.classList.toggle('visible');
+    });
+
     document.getElementById('save-key').addEventListener('click', () => {
         const key = document.getElementById('openai-key').value.trim();
         chrome.storage.local.set({ openaiKey: key }, () => {
@@ -31,7 +34,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             setTimeout(() => {
                 btn.textContent = originalText;
                 btn.style.background = '';
-            }, 2000);
+                settingsPanel.classList.remove('visible'); // Hide after saving
+            }, 1000);
         });
     });
 
@@ -43,17 +47,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         chrome.storage.local.set({ autoSimplify: autoSimplifyToggle.checked });
     });
 
-    levelSelect.addEventListener('change', () => {
-        chrome.storage.local.set({ level: levelSelect.value });
-    });
-
     viewInsights.addEventListener('click', async () => {
         const analytics = await chrome.runtime.sendMessage({ type: 'GET_ANALYTICS' });
-
         if (analytics) {
             const wordList = document.getElementById('word-list');
             wordList.innerHTML = '';
-
             if (analytics.strugglingWords.length > 0) {
                 analytics.strugglingWords.forEach(word => {
                     const li = document.createElement('li');
@@ -63,10 +61,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             } else {
                 wordList.innerHTML = '<li>Keep reading to gather insights!</li>';
             }
-
             wordsLearnedEl.textContent = analytics.learnedCount;
         }
-
         insightsPanel.classList.remove('hidden');
     });
 

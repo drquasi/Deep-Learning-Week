@@ -57,10 +57,11 @@ class AdaptiReadStorage {
         return this.get(STORE_ARTICLES, url);
     }
 
-    async saveArticle(url, replacements) {
+    async saveArticle(url, replacements, version = null) {
         return this.put(STORE_ARTICLES, {
             url,
             replacements,
+            version,
             timestamp: Date.now()
         });
     }
