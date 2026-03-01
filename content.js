@@ -151,28 +151,44 @@ async function scanAndProcess() {
         const forbidden = ['SCRIPT', 'STYLE', 'TEXTAREA', 'NOSCRIPT', 'CODE', 'PRE', 'INPUT', 'SELECT'];
         if (forbidden.includes(tagName) || parent.closest('.adaptiread-highlight')) continue;
 
-        const blockParent = parent.closest('p, div, h1, h2, h3, h4, h5, h6, li, article, section') || parent;
+        // More inclusive block detection
+        const blockParent = parent.closest('p, div, h1, h2, h3, h4, h5, h6, li, td, th, blockquote, dt, dd') || parent;
         if (!blockMap.has(blockParent)) blockMap.set(blockParent, []);
         blockMap.get(blockParent).push(node);
     }
 
     if (blockMap.size === 0) return;
-    console.log(`AdaptiRead: Found ${blockMap.size} text blocks`);
+    console.log(`AdaptiRead: Analyzing ${blockMap.size} text blocks`);
 
-    const blocksToAnalyze = [];
+    const textToAnalyzeSet = new Set();
+    const blockToTextSegments = new Map(); // blockElement -> array of text segments
+
     blockMap.forEach((nodes, blockElement) => {
-        const fullText = blockElement.innerText.trim().replace(/\s+/g, ' ');
-        if (fullText.length > 20) {
-            blocksToAnalyze.push({ text: fullText, nodes: nodes });
-        } else {
+        let fullText = blockElement.innerText.trim().replace(/\s+/g, ' ');
+        if (fullText.length <= 20) {
             nodes.forEach(n => processedNodes.add(n));
+            return;
         }
+
+        const segments = [];
+        if (fullText.length > 1500) {
+            const splitSentences = fullText.match(/[^.!?]+[.!?]?(?:\s|$)/g) || [fullText];
+            splitSentences.forEach(s => {
+                const trimmed = s.trim();
+                if (trimmed.length > 20) segments.push(trimmed);
+            });
+        } else {
+            segments.push(fullText);
+        }
+
+        blockToTextSegments.set(blockElement, segments);
+        segments.forEach(seg => textToAnalyzeSet.add(seg));
     });
 
-    if (blocksToAnalyze.length === 0) return;
+    const uniqueTexts = Array.from(textToAnalyzeSet);
+    if (uniqueTexts.length === 0) return;
 
-    const uniqueTexts = Array.from(new Set(blocksToAnalyze.map(b => b.text)));
-    console.log('AdaptiRead: Asking background for analysis of', uniqueTexts.length, 'unique blocks');
+    console.log('AdaptiRead: Fetching analysis for', uniqueTexts.length, 'segments');
     const analysisResults = await safeSendMessage({
         type: 'ANALYZE_PAGE',
         url: window.location.href,
@@ -183,68 +199,67 @@ async function scanAndProcess() {
         console.log('AdaptiRead: No results from background');
         return;
     }
-    console.log('AdaptiRead: Received results for', Object.keys(analysisResults).length, 'blocks');
 
-    blocksToAnalyze.forEach(block => {
-        let complexWords = analysisResults[block.text];
+    // Now process each original block exactly once
+    blockMap.forEach((nodes, blockElement) => {
+        const textSegments = blockToTextSegments.get(blockElement);
+        if (!textSegments) return;
 
-        // Safeguard: handle legacy object format or missing data
-        if (!complexWords) {
-            block.nodes.forEach(n => processedNodes.add(n));
+        // Aggregate ALL complex words for this block from all its segments
+        const allComplexWords = new Set();
+        textSegments.forEach(seg => {
+            let words = analysisResults[seg];
+            if (words) {
+                if (!Array.isArray(words)) words = Object.keys(words);
+                words.forEach(w => allComplexWords.add(w));
+            }
+        });
+
+        if (allComplexWords.size === 0) {
+            nodes.forEach(n => processedNodes.add(n));
             return;
         }
 
-        // If it's an object (old format), convert keys to array
-        if (!Array.isArray(complexWords)) {
-            complexWords = Object.keys(complexWords);
-        }
+        const wordList = Array.from(allComplexWords).sort((a, b) => b.length - a.length);
+        console.log(`AdaptiRead: Highlighting ${wordList.length} unique words in block`);
 
-        if (complexWords.length === 0) {
-            block.nodes.forEach(n => processedNodes.add(n));
-            return;
-        }
-
-        console.log(`AdaptiRead: Processing block with ${complexWords.length} complex words`);
-
-        block.nodes.forEach(textNode => {
+        nodes.forEach(textNode => {
             if (processedNodes.has(textNode)) return;
             processedNodes.add(textNode);
 
-            const text = textNode.nodeValue;
-            let segments = [{ type: 'text', content: text }];
+            const textValue = textNode.nodeValue;
+            let displaySegments = [{ type: 'text', content: textValue }];
             let changed = false;
 
-            // Identification logic
-            complexWords.sort((a, b) => b.length - a.length).forEach(word => {
+            wordList.forEach(word => {
                 const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                // Use a simpler regex if lookbehind is suspected to fail, but keep standard word boundary
                 const regex = new RegExp(`\\b${escapedWord}\\b`, 'gi');
-                const newSegments = [];
+                const newDisplaySegments = [];
 
-                segments.forEach(segment => {
+                displaySegments.forEach(segment => {
                     if (segment.type === 'text') {
                         let lastIndex = 0, match;
                         while ((match = regex.exec(segment.content)) !== null) {
                             changed = true;
                             if (match.index > lastIndex) {
-                                newSegments.push({ type: 'text', content: segment.content.substring(lastIndex, match.index) });
+                                newDisplaySegments.push({ type: 'text', content: segment.content.substring(lastIndex, match.index) });
                             }
-                            newSegments.push({ type: 'complex', word: match[0] });
+                            newDisplaySegments.push({ type: 'complex', word: match[0] });
                             lastIndex = regex.lastIndex;
                         }
                         if (lastIndex < segment.content.length) {
-                            newSegments.push({ type: 'text', content: segment.content.substring(lastIndex) });
+                            newDisplaySegments.push({ type: 'text', content: segment.content.substring(lastIndex) });
                         }
                     } else {
-                        newSegments.push(segment);
+                        newDisplaySegments.push(segment);
                     }
                 });
-                segments = newSegments;
+                displaySegments = newDisplaySegments;
             });
 
             if (changed) {
                 const fragment = document.createDocumentFragment();
-                segments.forEach(seg => {
+                displaySegments.forEach(seg => {
                     if (seg.type === 'text') {
                         fragment.appendChild(document.createTextNode(seg.content));
                     } else {
@@ -256,7 +271,6 @@ async function scanAndProcess() {
                     }
                 });
                 if (textNode.parentNode) {
-                    console.log(`AdaptiRead: Highlighting ${segments.filter(s => s.type === 'complex').length} words in a node`);
                     textNode.parentNode.replaceChild(fragment, textNode);
                 }
             }

@@ -96,78 +96,99 @@ async function processBatch(url, sentences) {
             }
         }
 
-        if (sentencesToAnalyze.length === 0) return allIdentifications;
+        console.log(`AdaptiRead Background: Processing ${sentencesToAnalyze.length} new sentences with character limits`);
 
-        let response;
-        const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
+        const MAX_CHARS = 5000;
+        const CHUNK_SIZE = 15;
 
-        if (openaiKey) {
-            console.log('Using Direct OpenAI Mode');
-            response = await fetch(OPENAI_API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${openaiKey}`
-                },
-                body: JSON.stringify({
-                    model: 'gpt-3.5-turbo',
-                    messages: [
-                        {
-                            role: 'system',
-                            content: `Identify complex, advanced, or academic words. Return a JSON object where keys are sentences and values are arrays of complex words. Example: {"The melancholy king sat alone.": ["melancholy"]}`
+        let i = 0;
+        while (i < sentencesToAnalyze.length) {
+            const chunk = [];
+            const chunkHashes = [];
+            let currentChars = 0;
+
+            while (i < sentencesToAnalyze.length && chunk.length < CHUNK_SIZE) {
+                const s = sentencesToAnalyze[i];
+                if (currentChars + s.length > MAX_CHARS && chunk.length > 0) break;
+
+                chunk.push(s);
+                chunkHashes.push(sentenceHashes[i]);
+                currentChars += s.length;
+                i++;
+            }
+
+            console.log(`AdaptiRead Background: Sending chunk (${chunk.length} sentences, ~${currentChars} chars)`);
+
+            let response;
+            const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
+
+            try {
+                if (openaiKey) {
+                    response = await fetch(OPENAI_API_URL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${openaiKey}`
                         },
-                        {
-                            role: 'user',
-                            content: JSON.stringify(sentencesToAnalyze)
-                        }
-                    ],
-                    response_format: { type: 'json_object' }
-                })
-            });
-        } else {
-            console.log('Using Secure Proxy Mode');
-            response = await fetch(PROXY_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sentences: sentencesToAnalyze })
-            });
-        }
+                        body: JSON.stringify({
+                            model: 'gpt-3.5-turbo',
+                            messages: [
+                                {
+                                    role: 'system',
+                                    content: `Identify complex, advanced, or academic words. Return a JSON object where keys are EXACT sentences from the input. Example: {"The melancholy king sat alone.": ["melancholy"]}`
+                                },
+                                { role: 'user', content: JSON.stringify(chunk) }
+                            ],
+                            response_format: { type: 'json_object' }
+                        })
+                    });
+                } else {
+                    response = await fetch(PROXY_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ sentences: chunk })
+                    });
+                }
 
-        const data = await response.json();
-        console.log('AdaptiRead Background: AI response received', !!data);
+                if (!response.ok) {
+                    console.error('AdaptiRead Background: Chunk request failed', response.status);
+                    continue;
+                }
 
-        let aiReplacements;
-        try {
-            aiReplacements = openaiKey ? JSON.parse(data.choices[0].message.content) : data;
-        } catch (e) {
-            console.error('AdaptiRead Background: JSON Parse Error', e);
-            return allIdentifications;
-        }
+                const data = await response.json();
+                let aiReplacements;
+                try {
+                    aiReplacements = openaiKey ? JSON.parse(data.choices[0].message.content) : data;
+                } catch (e) {
+                    aiReplacements = data;
+                }
 
-        // Robust matching: trim and case-insensitive keys
-        const aiKeys = Object.keys(aiReplacements).reduce((acc, k) => {
-            acc[k.trim().toLowerCase()] = aiReplacements[k];
-            return acc;
-        }, {});
+                const aiKeys = Object.keys(aiReplacements).reduce((acc, k) => {
+                    acc[k.trim().toLowerCase()] = aiReplacements[k];
+                    return acc;
+                }, {});
 
-        for (let i = 0; i < sentencesToAnalyze.length; i++) {
-            const sentence = sentencesToAnalyze[i];
-            const hash = sentenceHashes[i];
-            const normalizedSentence = sentence.trim().toLowerCase();
-            const words = aiKeys[normalizedSentence] || [];
+                for (let j = 0; j < chunk.length; j++) {
+                    const sentence = chunk[j];
+                    const hash = chunkHashes[j];
+                    const normalizedSentence = sentence.trim().toLowerCase();
+                    const words = aiKeys[normalizedSentence] || [];
 
-            if (Array.isArray(words) && words.length > 0) {
-                await self.adaptiReadStorage.saveContext(hash, words);
-                allIdentifications[sentence] = words;
-            } else {
-                // Save empty array to avoid re-scanning
-                await self.adaptiReadStorage.saveContext(hash, []);
-                allIdentifications[sentence] = [];
+                    if (Array.isArray(words) && words.length > 0) {
+                        await self.adaptiReadStorage.saveContext(hash, words);
+                        allIdentifications[sentence] = words;
+                    } else {
+                        await self.adaptiReadStorage.saveContext(hash, []);
+                        allIdentifications[sentence] = [];
+                    }
+                }
+            } catch (err) {
+                console.error('AdaptiRead Background: Chunk fetch error', err);
             }
         }
 
         await self.adaptiReadStorage.saveArticle(url, allIdentifications);
-        console.log('AdaptiRead Background: Saved article results for', url);
+        console.log('AdaptiRead Background: Saved full article results for', url);
         return allIdentifications;
 
     } catch (err) {
