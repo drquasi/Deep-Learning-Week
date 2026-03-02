@@ -27,24 +27,105 @@
         </header>
 
         <main>
-            <div id="simplify-action-container" style="margin-bottom: 20px;">
-                <button id="simplify-page-btn" class="primary-btn">Simplify current page</button>
+            <div class="tab-bar">
+                <button id="tab-home" class="tab-btn active">Home</button>
+                <button id="tab-lessons" class="tab-btn">Lessons Learned</button>
             </div>
 
-            <div class="status-card">
-                <label class="switch-container">
-                    <span class="label-text">Enable highlights</span>
-                    <input type="checkbox" id="master-toggle" checked>
-                    <span class="slider"></span>
-                </label>
+            <div id="home-view" class="tab-content">
+                <div id="simplify-action-container" style="margin-bottom: 20px;">
+                    <button id="simplify-page-btn" class="primary-btn">Simplify current page</button>
+                </div>
+
+                <div class="status-card">
+                    <label class="switch-container">
+                        <span class="label-text">Enable highlights</span>
+                        <input type="checkbox" id="master-toggle" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="status-card">
+                    <label class="switch-container">
+                        <span class="label-text">Auto-simplify on load</span>
+                        <input type="checkbox" id="auto-simplify-toggle" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-value" id="stats-seen">0</span>
+                        <span class="stat-label">Words</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="stats-mastered">0</span>
+                        <span class="stat-label">Mastered</span>
+                    </div>
+                </div>
             </div>
 
-            <div class="status-card">
-                <label class="switch-container">
-                    <span class="label-text">Auto-simplify on load</span>
-                    <input type="checkbox" id="auto-simplify-toggle" checked>
-                    <span class="slider"></span>
-                </label>
+            <div id="lessons-view" class="tab-content hidden">
+                <!-- Sub-tab Bar -->
+                <div class="sub-tab-bar">
+                    <button id="sub-tab-coach" class="sub-tab-btn active">AI Coach</button>
+                    <button id="sub-tab-vocab" class="sub-tab-btn">My Vocabulary</button>
+                </div>
+
+                <div id="insights-loading" class="hidden" style="text-align: center; padding: 20px;">
+                    <div class="spinner" style="margin: 0 auto 12px;"></div>
+                    <p class="stat-label">Analyzing...</p>
+                </div>
+
+                <div id="insights-display">
+                    <!-- Sub-view: AI Coach -->
+                    <div id="coach-sub-view">
+                        <div class="coach-container" style="margin-bottom: 24px;">
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <h4 class="label-text" style="margin: 0; font-size: 0.7rem; text-transform: uppercase;">
+                                    AI COACH</h4>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <select id="coach-language-select" class="glass-select"
+                                        title="Select Coaching Language">
+                                        <option value="English">English</option>
+                                        <option value="Chinese">Chinese</option>
+                                        <option value="French">French</option>
+                                        <option value="Spanish">Spanish</option>
+                                        <option value="Japanese">Japanese</option>
+                                        <option value="Korean">Korean</option>
+                                        <option value="German">German</option>
+                                    </select>
+                                    <button id="refresh-coach-btn" class="icon-btn" title="Refresh Analysis">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round" stroke-linejoin="round"
+                                            style="width: 14px; height: 14px;">
+                                            <path d="M23 4v6h-6"></path>
+                                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="ai-insight-card">
+                                <p id="ai-insight-text" class="insight-text"></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sub-view: My Vocabulary -->
+                    <div id="vocab-sub-view" class="hidden">
+                        <div id="lessons-learned-container">
+                            <h4 class="label-text"
+                                style="margin-bottom: 12px; font-size: 0.7rem; text-transform: uppercase;">
+                                MY VOCABULARY</h4>
+                            <div id="lessons-empty-msg" class="insight-text hidden"
+                                style="text-align: center; color: var(--text-dim); padding: 20px;">
+                                No focal words yet. Keep reading!
+                            </div>
+                            <div id="word-list" class="word-list"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div id="settings-panel" class="hidden-panel">
@@ -63,56 +144,7 @@
                     </div>
                 </div>
             </div>
-
-
-            <div class="stats-grid">
-                <div class="stat-item">
-                    <span class="stat-value" id="stats-seen">0</span>
-                    <span class="stat-label">Words</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-value" id="stats-mastered">0</span>
-                    <span class="stat-label">Mastered</span>
-                </div>
-            </div>
-
-            <div class="tutor-section">
-                <button id="view-insights" class="primary-btn glass-btn">View learning insights</button>
-            </div>
         </main>
-
-        <div id="insights-panel" class="hidden">
-            <div class="panel-header">
-                <button id="close-insights" class="icon-btn">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round">
-                        <line x1="19" y1="12" x2="5" y2="12"></line>
-                        <polyline points="12 19 5 12 12 5"></polyline>
-                    </svg>
-                </button>
-                <h2>Insights</h2>
-            </div>
-
-            <div id="insights-loading" class="hidden" style="text-align: center; padding: 20px;">
-                <div class="spinner" style="margin: 0 auto 12px;"></div>
-                <p class="stat-label">Analyzing...</p>
-            </div>
-
-            <div id="insights-display" class="insights-content hidden">
-                <p id="ai-insight-text" class="insight-text"
-                    style="margin-bottom: 24px; font-style: italic; color: var(--accent);"></p>
-
-                <div id="lessons-learned-container">
-                    <h4 class="label-text" style="margin-bottom: 12px; font-size: 0.7rem; text-transform: uppercase;">
-                        LESSONS LEARNED</h4>
-                    <div id="lessons-empty-msg" class="insight-text hidden"
-                        style="text-align: center; color: var(--text-dim); padding: 20px;">
-                        No focal words yet. Keep reading!
-                    </div>
-                    <ul id="word-list" class="mini-list"></ul>
-                </div>
-            </div>
-        </div>
     </div>
     </div>
 
@@ -147,6 +179,7 @@
         <div class="debug-content">
             <div style="margin-bottom: 24px; display: grid; gap: 8px;">
                 <button id="force-decay" class="primary-btn glass-btn">Simulate 7-day decay</button>
+                <button id="debug-mock-ai" class="primary-btn glass-btn">Debug: Mock AI Advice</button>
                 <button id="debug-mock-data" class="primary-btn"
                     style="background: rgba(59, 130, 246, 0.1); color: var(--accent); border: 1px solid var(--accent);">Mock
                     5 Struggling Words</button>

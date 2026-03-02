@@ -13,11 +13,28 @@ chrome.runtime.onInstalled.addListener(async () => {
         await self.adaptiReadStorage.init();
         console.log('AdaptiRead Initialized.');
         await applyDecay();
+
+        chrome.contextMenus.create({
+            id: 'highlight-with-adaptiread',
+            title: 'Highlight with AdaptiRead',
+            contexts: ['selection']
+        });
+
         if (chrome.alarms) {
             chrome.alarms.create('decayAlarm', { periodInMinutes: 1440 });
         }
     } catch (err) {
         console.error('Initialization failed:', err);
+    }
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+    if (info.menuItemId === 'highlight-with-adaptiread' && info.selectionText) {
+        const word = info.selectionText.trim().split(/\s+/)[0].toLowerCase();
+        if (word && tab?.id) {
+            await handleInteraction(word, 'hover');
+            chrome.tabs.sendMessage(tab.id, { type: 'HIGHLIGHT_WORD', word });
+        }
     }
 });
 
@@ -43,7 +60,34 @@ const INTERACTION_IMPACT = {
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 const PROXY_URL = 'http://localhost:3000/simplify';
 const EXAMPLES_PROXY_URL = 'http://localhost:3000/examples';
+const CHAT_PROXY_URL = 'http://localhost:3000/chat';
 const DICTIONARY_API_URL = 'https://api.dictionaryapi.dev/api/v2/entries/en/';
+
+async function callOpenAI(payload) {
+    const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
+    if (openaiKey) {
+        const response = await fetch(OPENAI_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+            body: JSON.stringify({
+                ...payload,
+                model: payload.model || 'gpt-3.5-turbo'
+            })
+        });
+        if (!response.ok) throw new Error(`OpenAI API Error: ${response.status}`);
+        const data = await response.json();
+        return data.choices[0].message.content;
+    } else {
+        const response = await fetch(CHAT_PROXY_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) throw new Error(`Proxy Error: ${response.status}`);
+        const data = await response.json();
+        return data.choices[0].message.content;
+    }
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Robust message handling with single sendResponse point
@@ -267,45 +311,64 @@ async function getLearningInsights() {
 
         const focalWords = Array.from(combinedWordSet).sort();
 
-        // Determine the "struggling" subset for AI summary
+        // Determine the "struggling" subset for AI summary prioritization
         const struggling = allWords
-            .filter(w => combinedWordSet.has(w.word.toLowerCase()) && w.proficiency < 0.7)
+            .filter(w => combinedWordSet.has(w.word.toLowerCase()) && w.proficiency < 0.9)
             .sort((a, b) => b.contextCount - a.contextCount)
-            .slice(0, 5);
+            .slice(0, 10);
 
         const wordsData = focalWords.map(word => ({
             word,
             hasVaulted: vaultedWords.has(word.toLowerCase())
-        })).reverse(); // Newest first (approx-ish by set order)
+        })).reverse();
 
         if (focalWords.length === 0) {
             return { insight: "Insights taking shape... Keep reading to discover more words.", words: [] };
         }
 
         let insight = `You're focusing on ${focalWords.length} words. Keep practicing to build mastery!`;
-        const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
 
-        if (openaiKey && struggling.length > 0) {
-            const summary = struggling.map(w => `${w.word} (Seen ${w.contextCount}x)`).join(', ');
-            try {
-                const prompt = `Analyze: ${summary}. Provide a concise 2-sentence actionable coaching tip for an ESL student.`;
-                const response = await fetch(OPENAI_API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
-                    body: JSON.stringify({
-                        model: 'gpt-3.5-turbo',
-                        messages: [{ role: 'system', content: 'You are a helpful ESL Tutor.' }, { role: 'user', content: prompt }]
-                    })
-                });
-                if (response.ok) {
-                    const data = await response.json();
-                    insight = data.choices[0].message.content;
-                }
-            } catch (apiErr) {
-                console.warn('OpenAI API Error:', apiErr);
-            }
-        } else if (struggling.length > 0) {
-            insight = `You've encountered "${struggling[0].word}" recently. Focus on its usage in different contexts.`;
+        const { coachLanguage = 'English' } = await chrome.storage.local.get(['coachLanguage']);
+
+        // Always attempt an AI report if there are any focal words
+        const targetWords = struggling.length > 0 ? struggling : allWords.filter(w => combinedWordSet.has(w.word.toLowerCase())).slice(0, 10);
+        const wordSummary = targetWords.map(w => `${w.word} (Seen ${w.contextCount}x, Proficiency: ${(w.proficiency * 100).toFixed(0)}%)`).join(', ');
+        const vaultedContext = misunderstood.slice(0, 5).map(m => `"${m.sentence}" (Trouble with: ${m.word})`).join('\n');
+
+        try {
+            const prompt = `Analyze this student's progress and provide an ELITE ESL coaching report.
+            
+            STRICT LANGUAGE RULE: Provide the ENTIRE response (including headers, categories, advice, and tips) strictly in ${coachLanguage}.
+            
+            STUDENT DATA:
+            - Current Focal Words: ${wordSummary}
+            - Difficult Contexts:
+            ${vaultedContext}
+            
+            REPORT STRUCTURE (Translate these headers to ${coachLanguage}):
+            ### 📊 Weakness Classification
+            Identify the specific categories of English they are working on or struggling with.
+            
+            ### 💡 Tailored Advice
+            Provide 2-3 specific, actionable strategies on how to move their proficiency to 100% for these EXACT words.
+            
+            ### 🎓 Pro Coaching Tip
+            A final sophisticated tip for their level.
+            
+            STRICT RULE: You MUST use the syntax [[word|tooltip]] for at least 3 sophisticated terms in your response. The tip inside the tooltip must also be in ${coachLanguage}.
+            Example: "You should focus on [[nuance|A subtle difference in meaning]] in your reading." (but translated to ${coachLanguage}).
+            
+            Be professional, analytical, and discouraging of simple mistakes. Respond in Markdown.`;
+
+            const aiResponse = await callOpenAI({
+                messages: [
+                    { role: 'system', content: `You are an elite ESL Coach helping advanced learners. Your reports are structured, analytical, and highly professional. You use clear Markdown headers. You respond strictly in ${coachLanguage}.` },
+                    { role: 'user', content: prompt }
+                ]
+            });
+            if (aiResponse) insight = aiResponse;
+        } catch (apiErr) {
+            console.warn('AI Insights Error:', apiErr);
         }
 
         return { insight, words: wordsData };
@@ -543,9 +606,6 @@ async function debugMockData(specificWord) {
 }
 
 async function chatWithTutor(text) {
-    const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
-    if (!openaiKey) return { text: "Please set your OpenAI API key in settings to enable the AI Tutor chat." };
-
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
         const allWords = await self.adaptiReadStorage.getAllWords();
@@ -561,48 +621,30 @@ async function chatWithTutor(text) {
 
         Be concise, helpful, and provide examples when explaining words. Keep responses to under 4 sentences.`;
 
-        const response = await fetch(OPENAI_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
-            body: JSON.stringify({
-                model: 'gpt-3.5-turbo',
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: text }
-                ]
-            })
+        const content = await callOpenAI({
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: text }
+            ]
         });
 
-        if (!response.ok) throw new Error('API request failed');
-        const data = await response.json();
-        return { text: data.choices[0].message.content };
+        return { text: content };
     } catch (err) {
         console.error('Chat Error:', err);
-        return { text: "I'm having a little trouble thinking right now. Please check your connection and OpenAI key." };
+        return { text: "I'm having a little trouble thinking right now. Please check your connection." };
     }
 }
 async function simplifySentence(text) {
-    const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
-    if (!openaiKey) return text;
-
     try {
-        const response = await fetch(OPENAI_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
-            body: JSON.stringify({
-                model: 'gpt-3.5-turbo',
-                messages: [
-                    { role: 'system', content: 'You are a helpful assistant that simplifies English sentences for ESL learners. Rewrite the input to be simpler while preserving the original meaning.' },
-                    { role: 'user', content: text }
-                ]
-            })
+        const content = await callOpenAI({
+            messages: [
+                { role: 'system', content: 'You are a helpful assistant that simplifies complex English sentences for non-native speakers. Your goal is to make the meaning crystal clear while preserving the original intent. Keep the simplified version concise.' },
+                { role: 'user', content: `Please simplify this sentence: "${text}"` }
+            ]
         });
-
-        if (!response.ok) return text;
-        const data = await response.json();
-        return data.choices[0].message.content;
+        return content;
     } catch (err) {
-        console.error('Simplification Error:', err);
+        console.error('Simplify Error:', err);
         return text;
     }
 }

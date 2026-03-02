@@ -69,6 +69,35 @@ app.post('/simplify', async (req, res) => {
     }
 });
 
+app.post('/chat', async (req, res) => {
+    const { messages, model, response_format } = req.body;
+
+    if (!OPENAI_API_KEY || OPENAI_API_KEY === 'YOUR_OPENAI_API_KEY_HERE') {
+        return res.status(500).json({ error: 'Proxy API Key not configured' });
+    }
+
+    try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${OPENAI_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: model || 'gpt-3.5-turbo',
+                messages: messages,
+                response_format: response_format
+            })
+        });
+
+        const data = await response.json();
+        res.json(data);
+    } catch (err) {
+        console.error('Proxy Chat Error:', err);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 app.post('/examples', async (req, res) => {
     const { word, contextInfo } = req.body;
 

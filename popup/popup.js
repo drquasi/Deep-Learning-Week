@@ -5,13 +5,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const statsMasteredEl = document.getElementById('stats-mastered');
     const settingsToggle = document.getElementById('settings-toggle');
     const settingsPanel = document.getElementById('settings-panel');
-    const viewInsights = document.getElementById('view-insights');
-    const closeInsights = document.getElementById('close-insights');
-    const insightsPanel = document.getElementById('insights-panel');
+
+    // Tab Elements
+    const tabHome = document.getElementById('tab-home');
+    const tabLessons = document.getElementById('tab-lessons');
+    const homeView = document.getElementById('home-view');
+    const lessonsView = document.getElementById('lessons-view');
+
     const insightsLoading = document.getElementById('insights-loading');
     const insightsDisplay = document.getElementById('insights-display');
     const aiInsightText = document.getElementById('ai-insight-text');
-    const strugglingContainer = document.getElementById('struggling-words-container');
     const wordList = document.getElementById('word-list');
 
     // Debug Elements
@@ -39,8 +42,47 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     updateStats();
 
+    function renderInsightWithTooltips(text, container) {
+        if (!text) return;
+
+        // Handle Markdown-lite
+        let html = text
+            .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\n\n/g, '</p><p>');
+
+        // Handle Tooltips
+        const tooltipRegex = /\[\[(.*?)\|(.*?)\]\]/g;
+        html = html.replace(tooltipRegex, (match, word, tip) => {
+            return `<span class="insight-tooltip-target" data-tip="${tip}">${word}</span>`;
+        });
+
+        container.innerHTML = `<p>${html}</p>`;
+    }
+
+    const refreshCoachBtn = document.getElementById('refresh-coach-btn');
+    if (refreshCoachBtn) {
+        refreshCoachBtn.onclick = () => {
+            refreshCoachBtn.classList.add('spinning');
+            loadLessonsLearned();
+            setTimeout(() => refreshCoachBtn.classList.remove('spinning'), 1000);
+        };
+    }
+
     // Event Listeners
     settingsToggle.addEventListener('click', () => settingsPanel.classList.toggle('visible'));
+
+    const languageSelect = document.getElementById('coach-language-select');
+    chrome.storage.local.get(['coachLanguage'], (result) => {
+        if (result.coachLanguage) languageSelect.value = result.coachLanguage;
+    });
+
+    languageSelect.addEventListener('change', () => {
+        const lang = languageSelect.value;
+        chrome.storage.local.set({ coachLanguage: lang }, () => {
+            loadLessonsLearned(true);
+        });
+    });
 
     document.getElementById('save-key').addEventListener('click', () => {
         const key = document.getElementById('openai-key').value.trim();
@@ -266,20 +308,76 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    viewInsights.addEventListener('click', () => {
-        insightsPanel.classList.remove('hidden');
-        insightsLoading.classList.remove('hidden');
-        insightsDisplay.classList.add('hidden');
+    let cachedInsight = null;
+
+    tabHome.addEventListener('click', () => {
+        tabHome.classList.add('active');
+        tabLessons.classList.remove('active');
+        homeView.classList.remove('hidden');
+        lessonsView.classList.add('hidden');
+    });
+
+    tabLessons.addEventListener('click', () => {
+        tabHome.classList.remove('active');
+        tabLessons.classList.add('active');
+        homeView.classList.add('hidden');
+        lessonsView.classList.remove('hidden');
+        loadLessonsLearned(false);
+    });
+
+    // Sub-tab logic for Lessons Learned
+    const subTabCoach = document.getElementById('sub-tab-coach');
+    const subTabVocab = document.getElementById('sub-tab-vocab');
+    const coachSubView = document.getElementById('coach-sub-view');
+    const vocabSubView = document.getElementById('vocab-sub-view');
+
+    if (subTabCoach && subTabVocab) {
+        subTabCoach.addEventListener('click', () => {
+            subTabCoach.classList.add('active');
+            subTabVocab.classList.remove('active');
+            coachSubView.classList.remove('hidden');
+            vocabSubView.classList.add('hidden');
+        });
+
+        subTabVocab.addEventListener('click', () => {
+            subTabVocab.classList.add('active');
+            subTabCoach.classList.remove('active');
+            vocabSubView.classList.remove('hidden');
+            coachSubView.classList.add('hidden');
+        });
+    }
+
+    async function loadLessonsLearned(forceRefresh = false) {
+        // Only refresh AI summary if forced or not cached
+        const shouldRefreshAI = forceRefresh || !cachedInsight;
+
+        if (shouldRefreshAI) {
+            insightsLoading.classList.remove('hidden');
+            insightsDisplay.classList.add('hidden');
+        }
+
+        const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
+        const apiKeyWarning = document.getElementById('api-key-warning');
+        if (apiKeyWarning) {
+            apiKeyWarning.classList.toggle('hidden', !!openaiKey);
+        }
 
         chrome.runtime.sendMessage({ type: 'GET_LEARNING_INSIGHTS' }, (data) => {
-            insightsLoading.classList.add('hidden');
-            insightsDisplay.classList.remove('hidden');
+            if (shouldRefreshAI) {
+                insightsLoading.classList.add('hidden');
+                insightsDisplay.classList.remove('hidden');
+            }
 
-            const wordList = document.getElementById('word-list');
             const lessonsEmptyMsg = document.getElementById('lessons-empty-msg');
 
             if (data && data.insight) {
-                aiInsightText.textContent = data.insight;
+                if (shouldRefreshAI) {
+                    cachedInsight = data.insight;
+                    renderInsightWithTooltips(data.insight, aiInsightText);
+                } else if (cachedInsight) {
+                    renderInsightWithTooltips(cachedInsight, aiInsightText);
+                }
+
                 if (data.words && data.words.length > 0) {
                     lessonsEmptyMsg.classList.add('hidden');
                     wordList.innerHTML = '';
@@ -325,7 +423,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                         if (hasVaulted) {
                             li.querySelector('.vault-word-btn').onclick = () => {
-                                showVaultDetails(word); // Existing function
+                                showVaultDetails(word);
                             };
                         }
 
@@ -351,7 +449,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 lessonsEmptyMsg.classList.remove('hidden');
             }
         });
-    });
+    }
 
     // --- VAULT DETAIL VIEW ---
     const vaultDetailPanel = document.getElementById('vault-detail-panel');
@@ -402,8 +500,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         const remaining = sentences.filter(s => s.id !== item.id);
                         if (remaining.length === 0) {
                             vaultDetailPanel.classList.add('hidden');
-                            // Re-render insights to update the vault icon presence
-                            viewInsights.click();
+                            tabLessons.click();
                         } else {
                             showVaultDetails(word, remaining);
                         }
@@ -416,8 +513,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     closeVaultDetail.onclick = () => vaultDetailPanel.classList.add('hidden');
 
-    closeInsights.addEventListener('click', () => insightsPanel.classList.add('hidden'));
-
     // Debug Logic
     openDebug.addEventListener('click', () => {
         debugPanel.classList.remove('hidden');
@@ -425,6 +520,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     closeDebug.addEventListener('click', () => debugPanel.classList.add('hidden'));
+
+    document.getElementById('debug-mock-ai').onclick = () => {
+        const mockInsight = `Based on your recent activity, your main weakness lies in [[nuanced academic verbs|Words like 'mitigate' or 'exacerbate' that describe changes]] and [[technical transitions|Words that connect complex ideas]]. 
+        
+        Strategic Advice: You should focus on how these words alter the tone of scientific texts. Try reading more journals to see them in context. 
+        
+        Pro Tip: Pay attention to [[collocations|Words that naturally go together]] like 'significantly mitigate'.`;
+
+        tabLessons.click(); // Switch to lessons tab
+        setTimeout(() => {
+            renderInsightWithTooltips(mockInsight, aiInsightText);
+        }, 100);
+    };
 
     async function refreshDebugTable() {
         chrome.runtime.sendMessage({ type: 'DEBUG_GET_ALL_WORDS' }, (words) => {

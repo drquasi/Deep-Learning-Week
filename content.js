@@ -105,8 +105,65 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'START_SIMPLIFY') {
         startAdaptiRead(true); // Force re-scan
         sendResponse({ success: true });
+    } else if (msg.type === 'HIGHLIGHT_WORD') {
+        highlightSpecificWord(msg.word);
+        sendResponse({ success: true });
     }
 });
+
+async function highlightSpecificWord(word) {
+    if (!word || !chrome.runtime?.id) return;
+    const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
+
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+    const nodesToProcess = [];
+    let node;
+    while (node = walker.nextNode()) {
+        const parent = node.parentElement;
+        if (!parent || parent.closest('.adaptiread-highlight, .adaptiread-tooltip, .adaptiread-ask-popup')) continue;
+        const forbidden = ['SCRIPT', 'STYLE', 'TEXTAREA', 'NOSCRIPT', 'CODE', 'PRE', 'INPUT', 'SELECT'];
+        if (forbidden.includes(parent.tagName)) continue;
+        if (regex.test(node.nodeValue)) nodesToProcess.push(node);
+    }
+
+    nodesToProcess.forEach(textNode => {
+        let displaySegments = [{ type: 'text', content: textNode.nodeValue }];
+        let changed = false;
+
+        let lastIndex = 0, match;
+        const nextDisplaySegments = [];
+        const content = textNode.nodeValue;
+
+        while ((match = regex.exec(content)) !== null) {
+            changed = true;
+            if (match.index > lastIndex) nextDisplaySegments.push({ type: 'text', content: content.substring(lastIndex, match.index) });
+            nextDisplaySegments.push({ type: 'complex', word: match[0] });
+            lastIndex = regex.lastIndex;
+        }
+        if (lastIndex < content.length) nextDisplaySegments.push({ type: 'text', content: content.substring(lastIndex) });
+
+        if (changed) {
+            const fragment = document.createDocumentFragment();
+            nextDisplaySegments.forEach(seg => {
+                if (seg.type === 'text') {
+                    const tn = document.createTextNode(seg.content);
+                    processedNodes.add(tn);
+                    fragment.appendChild(tn);
+                } else {
+                    const span = document.createElement('span');
+                    span.className = 'adaptiread-highlight';
+                    span.textContent = seg.word;
+                    span.setAttribute('data-word', seg.word.toLowerCase());
+                    fragment.appendChild(span);
+                }
+            });
+            if (textNode.parentNode) textNode.parentNode.replaceChild(fragment, textNode);
+        }
+    });
+
+    attachIgnoreObserverToHighlights();
+}
 
 function setupObserver() {
     const observer = new MutationObserver((mutations) => {
@@ -522,8 +579,8 @@ chrome.storage.local.get(['enabled'], (res) => {
 
 const TOOLTIP_CSS = `
     .adaptiread-highlight {
-        background-color: rgba(59, 130, 246, 0.1);
-        border-bottom: 1px solid #3b82f6;
+        background-color: rgba(59, 130, 246, 0.2);
+        border-bottom: 2px solid #3b82f6;
         cursor: help;
         transition: all 0.2s ease;
         border-radius: 2px;

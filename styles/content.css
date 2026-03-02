@@ -23,8 +23,8 @@
 
 /* Light background tint for highlights */
 .adaptiread-highlight {
-    background-color: rgba(59, 130, 246, 0.1);
-    border-bottom: 1px solid #3b82f6;
+    background-color: rgba(59, 130, 246, 0.2);
+    border-bottom: 2px solid #3b82f6;
     border-radius: 2px;
     padding: 0 1px;
     cursor: help;
