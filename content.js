@@ -4,7 +4,7 @@ let isScanningActive = false;
 let isApplyingHighlights = false;
 let isEnabled = true;
 let scanTimeout = null;
-const processedNodes = new WeakSet();
+let processedNodes = new WeakSet();
 
 // --- UTILS ---
 function normalizeSentence(text) {
@@ -82,9 +82,13 @@ function hideLoadingIndicator() {
 }
 
 // --- CORE LOGIC ---
-function startAdaptiRead() {
-    if (isScanningActive) return;
-    console.log('AdaptiRead: Starting scanning engine...');
+function startAdaptiRead(force = false) {
+    if (isScanningActive && !force) return;
+    if (force) {
+        processedNodes = new WeakSet();
+        isApplyingHighlights = false;
+    }
+    console.log('AdaptiRead: Starting scanning engine (force=' + force + ')...');
     hasScannedOnThisPage = true;
     isScanningActive = true;
     const existingPopup = document.getElementById('adaptiread-ask-popup');
@@ -94,6 +98,15 @@ function startAdaptiRead() {
     scanAndProcess(true); // Initial LOUD scan
     setupObserver();
 }
+
+// --- INIT ---
+console.log('AdaptiRead: Content script loaded');
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'START_SIMPLIFY') {
+        startAdaptiRead(true); // Force re-scan
+        sendResponse({ success: true });
+    }
+});
 
 function setupObserver() {
     const observer = new MutationObserver((mutations) => {
@@ -193,6 +206,7 @@ async function scanAndProcess(isInitial = false) {
                 return;
             }
 
+            console.log(`AdaptiRead: Highlighting ${words.size} unique words in block.`);
             const sortedWords = Array.from(words).sort((a, b) => b.length - a.length);
 
             nodes.forEach(textNode => {

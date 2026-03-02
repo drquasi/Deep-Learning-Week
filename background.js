@@ -74,7 +74,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         'MARK_KNOWN': (msg) => handleInteraction(msg.word, 'know_it_click'),
         'SIMPLIFY_SENTENCE': (msg) => simplifySentence(msg.text),
         'DELETE_MISUNDERSTOOD_SENTENCE': (msg) => self.adaptiReadStorage.deleteMisunderstoodSentence(msg.id),
-        'DELETE_WORD': (msg) => self.adaptiReadStorage.deleteWord(msg.word)
+        'DELETE_WORD': (msg) => self.adaptiReadStorage.deleteWord(msg.word),
+        'CHAT_WITH_TUTOR': (msg) => chatWithTutor(msg.text)
     };
 
     if (handlers[message.type]) {
@@ -541,6 +542,45 @@ async function debugMockData(specificWord) {
     }
 }
 
+async function chatWithTutor(text) {
+    const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
+    if (!openaiKey) return { text: "Please set your OpenAI API key in settings to enable the AI Tutor chat." };
+
+    try {
+        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
+        const allWords = await self.adaptiReadStorage.getAllWords();
+        const focalWords = allWords.filter(w => w.isDiscovered).map(w => w.word);
+        const misunderstood = await self.adaptiReadStorage.getAllMisunderstoodSentences();
+        const vaultedSentences = misunderstood.map(m => `"${m.sentence}" (${m.word})`).join('\n');
+
+        const systemPrompt = `You are a friendly and encouraging AI Tutor. Your objective is to help advanced ESL learners master complex vocabulary. 
+        Context details for the user:
+        - Focal words discovered: ${focalWords.join(', ')}
+        - Sentences they found difficult:
+        ${vaultedSentences}
+
+        Be concise, helpful, and provide examples when explaining words. Keep responses to under 4 sentences.`;
+
+        const response = await fetch(OPENAI_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+            body: JSON.stringify({
+                model: 'gpt-3.5-turbo',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: text }
+                ]
+            })
+        });
+
+        if (!response.ok) throw new Error('API request failed');
+        const data = await response.json();
+        return { text: data.choices[0].message.content };
+    } catch (err) {
+        console.error('Chat Error:', err);
+        return { text: "I'm having a little trouble thinking right now. Please check your connection and OpenAI key." };
+    }
+}
 async function simplifySentence(text) {
     const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
     if (!openaiKey) return text;
@@ -552,15 +592,17 @@ async function simplifySentence(text) {
             body: JSON.stringify({
                 model: 'gpt-3.5-turbo',
                 messages: [
-                    { role: 'system', content: 'Simplify this sentence for an Adult ESL beginner. Keep it very short and easy.' },
+                    { role: 'system', content: 'You are a helpful assistant that simplifies English sentences for ESL learners. Rewrite the input to be simpler while preserving the original meaning.' },
                     { role: 'user', content: text }
                 ]
             })
         });
+
         if (!response.ok) return text;
         const data = await response.json();
         return data.choices[0].message.content;
     } catch (err) {
+        console.error('Simplification Error:', err);
         return text;
     }
 }
