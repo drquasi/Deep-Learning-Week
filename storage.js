@@ -9,6 +9,8 @@ const STORE_VOCAB = 'vocabulary';
 const STORE_INTERACTIONS = 'interactions';
 const STORE_ARTICLES = 'articles';
 const STORE_CONTEXTS = 'contexts';
+const STORE_PRACTICE = 'practice_content';
+const STORE_MISUNDERSTOOD = 'misunderstood_sentences';
 
 class AdaptiReadStorage {
     constructor() {
@@ -41,6 +43,17 @@ class AdaptiReadStorage {
                 // Contextual Word Cache Store: { sentenceHash, replacements, timestamp }
                 if (!db.objectStoreNames.contains(STORE_CONTEXTS)) {
                     db.createObjectStore(STORE_CONTEXTS, { keyPath: 'sentenceHash' });
+                }
+
+                // Practice Content Store: { word, quiz, sentences, timestamp }
+                if (!db.objectStoreNames.contains(STORE_PRACTICE)) {
+                    db.createObjectStore(STORE_PRACTICE, { keyPath: 'word' });
+                }
+
+                // Misunderstood Sentences Store: { id, word, sentence, timestamp }
+                if (!db.objectStoreNames.contains(STORE_MISUNDERSTOOD)) {
+                    const store = db.createObjectStore(STORE_MISUNDERSTOOD, { keyPath: 'id', autoIncrement: true });
+                    store.createIndex('word', 'word', { unique: false });
                 }
             };
 
@@ -78,8 +91,72 @@ class AdaptiReadStorage {
         });
     }
 
+    async getPracticeContent(word) {
+        return this.get(STORE_PRACTICE, word.toLowerCase());
+    }
+
+    async savePracticeContent(word, content) {
+        return this.put(STORE_PRACTICE, {
+            word: word.toLowerCase(),
+            ...content,
+            timestamp: Date.now()
+        });
+    }
+
+    async saveMisunderstoodSentence(word, sentence) {
+        const normalizedWord = word.toLowerCase();
+        // Check for duplicates first
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(STORE_MISUNDERSTOOD, 'readonly');
+            const store = transaction.objectStore(STORE_MISUNDERSTOOD);
+            const index = store.index('word');
+            const request = index.getAll(normalizedWord);
+
+            request.onsuccess = async () => {
+                const existing = request.result;
+                const isDuplicate = existing.some(item => item.sentence === sentence);
+
+                if (!isDuplicate) {
+                    await this.add(STORE_MISUNDERSTOOD, {
+                        word: normalizedWord,
+                        sentence,
+                        timestamp: Date.now()
+                    });
+                    resolve({ success: true, added: true });
+                } else {
+                    resolve({ success: true, added: false });
+                }
+            };
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async deleteMisunderstoodSentence(id) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(STORE_MISUNDERSTOOD, 'readwrite');
+            const store = transaction.objectStore(STORE_MISUNDERSTOOD);
+            const request = store.delete(Number(id)); // Ensure ID is a number
+            request.onsuccess = () => resolve({ success: true });
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async getAllMisunderstoodSentences() {
+        return this.getAll(STORE_MISUNDERSTOOD);
+    }
+
     async getWord(word) {
         return this.get(STORE_VOCAB, word.toLowerCase());
+    }
+
+    async deleteWord(word) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(STORE_VOCAB, 'readwrite');
+            const store = transaction.objectStore(STORE_VOCAB);
+            const request = store.delete(word);
+            request.onsuccess = () => resolve({ success: true });
+            request.onerror = () => reject(request.error);
+        });
     }
 
     async updateWordProficiency(word, delta, stabilityDelta = 0, interactionType = 'hover') {
@@ -144,11 +221,13 @@ class AdaptiReadStorage {
 
     async clearAll() {
         return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([STORE_VOCAB, STORE_INTERACTIONS, STORE_ARTICLES, STORE_CONTEXTS], 'readwrite');
+            const transaction = this.db.transaction([STORE_VOCAB, STORE_INTERACTIONS, STORE_ARTICLES, STORE_CONTEXTS, STORE_PRACTICE, STORE_MISUNDERSTOOD], 'readwrite');
             transaction.objectStore(STORE_VOCAB).clear();
             transaction.objectStore(STORE_INTERACTIONS).clear();
             transaction.objectStore(STORE_ARTICLES).clear();
             transaction.objectStore(STORE_CONTEXTS).clear();
+            transaction.objectStore(STORE_PRACTICE).clear();
+            transaction.objectStore(STORE_MISUNDERSTOOD).clear();
             transaction.oncomplete = () => resolve({ success: true });
             transaction.onerror = () => reject(transaction.error);
         });
@@ -166,6 +245,7 @@ class AdaptiReadStorage {
     }
 
     async put(storeName, data) {
+        if (!this.db) await this.init();
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(storeName, 'readwrite');
             const store = transaction.objectStore(storeName);
@@ -175,7 +255,18 @@ class AdaptiReadStorage {
         });
     }
 
+    async getAll(storeName) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(storeName, 'readonly');
+            const store = transaction.objectStore(storeName);
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
     async add(storeName, data) {
+        if (!this.db) await this.init();
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(storeName, 'readwrite');
             const store = transaction.objectStore(storeName);

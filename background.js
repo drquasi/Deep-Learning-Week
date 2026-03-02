@@ -35,62 +35,55 @@ const INTERACTION_IMPACT = {
     'simplify_click': { proficiency: -0.10, stability: -0.05 },
     'know_it_click': { proficiency: 0.20, stability: 0.10 },
     'context_seen': { proficiency: 0.01, stability: 0 },
-    'quiz_correct': { proficiency: 0.30, stability: 0.20 }
+    'quiz_correct': { proficiency: 0.15, stability: 0.30 },
+    'quiz_incorrect': { proficiency: -0.05, stability: -0.10 },
+    'practice_viewed': { proficiency: 0.10, stability: 0.15 }
 };
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 const PROXY_URL = 'http://localhost:3000/simplify';
+const EXAMPLES_PROXY_URL = 'http://localhost:3000/examples';
 const DICTIONARY_API_URL = 'https://api.dictionaryapi.dev/api/v2/entries/en/';
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('AdaptiRead Background: Received message', message.type);
-    if (message.type === 'LOG_INTERACTION') {
-        handleInteraction(message.word, message.interaction);
-        return true;
-    }
+    // Robust message handling with single sendResponse point
+    const handlers = {
+        'ANALYZE_PAGE': (msg) => processBatch(msg.url, msg.sentences),
+        'PROCESS_BATCH': (msg) => processBatch(msg.url, msg.sentences),
+        'FETCH_DEFINITION': (msg) => fetchDefinition(msg.word),
+        'GET_DEFINITION': (msg) => fetchDefinition(msg.word),
+        'GET_VOCAB_STATS': () => getVocabStats(),
+        'UPDATE_PROFICIENCY': (msg) => self.adaptiReadStorage.updateWordProficiency(msg.word, msg.delta, msg.stabilityDelta, msg.interactionType),
+        'LOG_INTERACTION': (msg) => handleInteraction(msg.word, msg.interaction),
+        'GET_LEARNING_INSIGHTS': () => getLearningInsights(),
+        'GET_PRACTICE_CONTENT': (msg) => getPracticeContent(msg.word, msg.forceRefresh),
+        'GET_DAILY_QUIZ': () => getDailyQuiz(),
+        'GET_READING_RECOMMENDATIONS': () => getReadingRecommendations(),
+        'LOG_MISUNDERSTOOD': (msg) => self.adaptiReadStorage.saveMisunderstoodSentence(msg.word, msg.sentence),
+        'GET_MISUNDERSTOOD_SENTENCES': () => self.adaptiReadStorage.getAllMisunderstoodSentences(),
+        'DEBUG_RESET_DB': async () => {
+            const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
+            await chrome.storage.local.clear();
+            if (openaiKey) await chrome.storage.local.set({ openaiKey });
+            await self.adaptiReadStorage.clearAll();
+            return { success: true };
+        },
+        'DEBUG_FORCE_DECAY': (msg) => applyDecay(msg.days || 7),
+        'DEBUG_GET_ALL_WORDS': () => self.adaptiReadStorage.getAllWords(),
+        'DEBUG_MOCK_DATA': (msg) => debugMockData(msg.word),
+        'MARK_KNOWN': (msg) => handleInteraction(msg.word, 'know_it_click'),
+        'SIMPLIFY_SENTENCE': (msg) => simplifySentence(msg.text),
+        'DELETE_MISUNDERSTOOD_SENTENCE': (msg) => self.adaptiReadStorage.deleteMisunderstoodSentence(msg.id),
+        'DELETE_WORD': (msg) => self.adaptiReadStorage.deleteWord(msg.word)
+    };
 
-    if (message.type === 'ANALYZE_PAGE') {
-        console.log('AdaptiRead Background: Analyzing page', message.url);
-        processBatch(message.url, message.sentences).then(res => {
-            console.log('AdaptiRead Background: Analysis complete', Object.keys(res).length, 'blocks');
-            sendResponse(res);
-        });
-        return true;
-    }
-
-    if (message.type === 'GET_DEFINITION') {
-        fetchDefinition(message.word).then(sendResponse);
-        return true;
-    }
-
-    if (message.type === 'GET_LEARNING_INSIGHTS') {
-        generateLearningInsights().then(sendResponse);
-        return true;
-    }
-
-    if (message.type === 'MARK_KNOWN') {
-        handleInteraction(message.word, 'know_it_click').then(sendResponse);
-        return true;
-    }
-
-    if (message.type === 'GET_VOCAB_STATS') {
-        getVocabStats().then(sendResponse);
-        return true;
-    }
-
-    // DEBUG HANDLERS
-    if (message.type === 'DEBUG_RESET_DB') {
-        self.adaptiReadStorage.clearAll().then(sendResponse);
-        return true;
-    }
-
-    if (message.type === 'DEBUG_FORCE_DECAY') {
-        applyDecay(message.days || 7).then(sendResponse);
-        return true;
-    }
-
-    if (message.type === 'DEBUG_GET_ALL_WORDS') {
-        self.adaptiReadStorage.getAllWords().then(sendResponse);
+    if (handlers[message.type]) {
+        handlers[message.type](message)
+            .then(res => sendResponse(res))
+            .catch(err => {
+                console.error(`Error in ${message.type} handler:`, err);
+                sendResponse(null);
+            });
         return true;
     }
 });
@@ -103,6 +96,15 @@ function normalizeSentence(text) {
         .trim();
 }
 
+async function hashSentence(sentence) {
+    const CACHE_VERSION = 'v2_lenient';
+    const encoder = new TextEncoder();
+    const data = encoder.encode(CACHE_VERSION + sentence);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function processBatch(url, sentences) {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
@@ -110,17 +112,14 @@ async function processBatch(url, sentences) {
         const CACHE_VERSION = 'v2_lenient';
         const cachedArticle = await self.adaptiReadStorage.getArticle(url);
         if (cachedArticle && cachedArticle.version === CACHE_VERSION) {
-            console.log('Serving from Article Cache:', url);
             return cachedArticle.replacements;
         }
 
         const allIdentifications = {};
         const sentencesToAnalyze = [];
-        const normalizedSentences = sentences.map(s => normalizeSentence(s));
-
         for (let idx = 0; idx < sentences.length; idx++) {
             const original = sentences[idx];
-            const normalized = normalizedSentences[idx];
+            const normalized = normalizeSentence(original);
             if (!normalized) continue;
 
             const hash = await hashSentence(normalized);
@@ -134,13 +133,15 @@ async function processBatch(url, sentences) {
         }
 
         if (sentencesToAnalyze.length === 0) {
-            await self.adaptiReadStorage.saveArticle(url, allIdentifications);
+            await self.adaptiReadStorage.saveArticle(url, allIdentifications, CACHE_VERSION);
             return allIdentifications;
         }
 
-        console.log(`AdaptiRead Background: Processing ${sentencesToAnalyze.length} new segments`);
+        // Cache mastered words to reduce transactions
+        const allWords = await self.adaptiReadStorage.getAllWords();
+        const masteredWords = new Set(allWords.filter(w => w.proficiency > 0.8).map(w => w.word));
 
-        const MAX_CHARS = 5500;
+        const MAX_CHARS = 5000;
         const chunks = [];
         let currentChunk = [];
         let currentChars = 0;
@@ -158,116 +159,68 @@ async function processBatch(url, sentences) {
 
         const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
 
-        // Concurrent processing
-        const CONCURRENCY = 3;
-        const allWordsFound = new Set();
-
-        for (let i = 0; i < chunks.length; i += CONCURRENCY) {
-            const batch = chunks.slice(i, i + CONCURRENCY);
-            await Promise.all(batch.map(async (chunk) => {
-                const chunkTexts = chunk.map(item => item.normalized);
-
-                try {
-                    let response;
-                    if (openaiKey) {
-                        response = await fetch(OPENAI_API_URL, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${openaiKey}`
-                            },
-                            body: JSON.stringify({
-                                model: 'gpt-3.5-turbo',
-                                messages: [
-                                    {
-                                        role: 'system',
-                                        content: `Identify all complex, academic, or specialized English words present in the provided text.
-                                        TARGET AUDIENCE: ESL Adult Beginner (e.g., Chinese university student).
-                                        RULES:
-                                        1. Be LENIENT. Include any word that a student with limited reading experience might struggle with.
-                                        2. Include academic vocabulary (AWL) and domain-specific terms.
-                                        3. Return a JSON object with a single key "complex_words" containing an array of unique words.
-                                        4. Exclude very common words and proper nouns.`
-                                    },
-                                    { role: 'user', content: JSON.stringify(chunkTexts) }
-                                ],
-                                response_format: { type: 'json_object' }
-                            })
-                        });
-                    } else {
-                        response = await fetch(PROXY_URL, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ sentences: chunkTexts })
-                        });
-                    }
-
-                    if (!response.ok) {
-                        for (const item of chunk) allIdentifications[item.original] = [];
-                        return;
-                    }
-
-                    const data = await response.json();
-                    let result;
-                    try {
-                        result = openaiKey ? JSON.parse(data.choices[0].message.content) : data;
-                    } catch (e) { result = data; }
-
-                    // Robust parsing: extract all words found in result regardless of structure
-                    let words = [];
-                    if (result.complex_words && Array.isArray(result.complex_words)) {
-                        words = result.complex_words;
-                    } else if (Array.isArray(result)) {
-                        words = result;
-                    } else if (typeof result === 'object' && result !== null) {
-                        // Legacy/Fallback: Extract all array values from the object
-                        Object.values(result).forEach(val => {
-                            if (Array.isArray(val)) words.push(...val);
-                        });
-                    }
-
-                    const uniqueWords = [...new Set(words)];
-                    const filtered = uniqueWords.filter(word => /^[\w\-\'\u00C0-\u017F\s]+$/.test(word) && word.length > 2);
-
-                    // Broadcast these words back to EVERY segment in this chunk
-                    for (const item of chunk) {
-                        const segmentWords = [];
-                        for (const w of filtered) {
-                            // Tutor: Skip words already mastered (proficiency > 0.8)
-                            const wordObj = await self.adaptiReadStorage.getWord(w);
-                            if (wordObj && wordObj.proficiency > 0.8) continue;
-
-                            if (item.normalized.includes(w.toLowerCase())) {
-                                segmentWords.push(w);
-                                // Log context sighting for the tutor model (small passive gain)
-                                await self.adaptiReadStorage.updateWordProficiency(w, 0.01, 0, 'context_seen');
-                            }
-                        }
-
-                        await self.adaptiReadStorage.saveContext(item.hash, segmentWords);
-                        allIdentifications[item.original] = segmentWords;
-                    }
-                } catch (err) {
-                    console.error('Batch chunk error:', err);
-                    for (const item of chunk) {
-                        if (!allIdentifications[item.original]) allIdentifications[item.original] = [];
-                    }
+        // Process sequentially to avoid DB transaction overlaps
+        for (const chunk of chunks) {
+            const chunkTexts = chunk.map(item => item.normalized);
+            try {
+                let response;
+                if (openaiKey) {
+                    response = await fetch(OPENAI_API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+                        body: JSON.stringify({
+                            model: 'gpt-3.5-turbo',
+                            messages: [
+                                { role: 'system', content: 'Identify complex English words for an Adult ESL learner. Return JSON { "complex_words": [] }' },
+                                { role: 'user', content: JSON.stringify(chunkTexts) }
+                            ],
+                            response_format: { type: 'json_object' }
+                        })
+                    });
+                } else {
+                    response = await fetch(PROXY_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ sentences: chunkTexts })
+                    });
                 }
-            }));
+
+                if (!response.ok) throw new Error(`Fetch failed with status ${response.status}`);
+
+                const data = await response.json();
+                const result = openaiKey ? JSON.parse(data.choices[0].message.content) : data;
+                let words = result.complex_words || (Array.isArray(result) ? result : []);
+
+                // Filter mastered and common/short words
+                const filtered = words.filter(w =>
+                    !masteredWords.has(w.toLowerCase()) &&
+                    /^[\w\-\']{3,}$/.test(w)
+                );
+
+                for (const item of chunk) {
+                    const segmentWords = filtered.filter(w => item.normalized.includes(w.toLowerCase()));
+                    await self.adaptiReadStorage.saveContext(item.hash, segmentWords);
+                    allIdentifications[item.original] = segmentWords;
+                }
+            } catch (err) {
+                console.error('Batch chunk error:', err);
+                for (const item of chunk) {
+                    if (!allIdentifications[item.original]) allIdentifications[item.original] = [];
+                }
+            }
         }
 
         await self.adaptiReadStorage.saveArticle(url, allIdentifications, CACHE_VERSION);
         return allIdentifications;
 
     } catch (err) {
-        console.error('ProcessBatch Error:', err);
+        console.error('ProcessBatch Global Error:', err);
         return {};
     }
 }
 
 async function fetchDefinition(word) {
     try {
-        console.log('AdaptiRead Background: Fetching definition for:', word);
         const encoded = encodeURIComponent(word.toLowerCase());
         const response = await fetch(`${DICTIONARY_API_URL}${encoded}`);
         if (!response.ok) return null;
@@ -289,65 +242,75 @@ async function fetchDefinition(word) {
     }
 }
 
-async function hashSentence(sentence) {
-    const CACHE_VERSION = 'v2_lenient'; // Increment this to force new analysis
-    const encoder = new TextEncoder();
-    const data = encoder.encode(CACHE_VERSION + sentence);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
 async function handleInteraction(word, type) {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
         const impact = INTERACTION_IMPACT[type] || { proficiency: 0, stability: 0 };
-        await self.adaptiReadStorage.updateWordProficiency(word, impact.proficiency, impact.stability, type);
+        return await self.adaptiReadStorage.updateWordProficiency(word, impact.proficiency, impact.stability, type);
     } catch (err) {
         console.error('Interaction Error:', err);
+        return null;
     }
 }
 
-async function generateLearningInsights() {
+async function getLearningInsights() {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
         const allWords = await self.adaptiReadStorage.getAllWords();
+        const misunderstood = await self.adaptiReadStorage.getAllMisunderstoodSentences();
+        const vaultedWords = new Set(misunderstood.map(m => m.word.toLowerCase()));
 
-        // Filter for "Struggling but Frequent" words
+        // Inclusive list: everything hovered (discovered) OR everything in vault
+        const discoveredWords = allWords.filter(w => w.isDiscovered).map(w => w.word.toLowerCase());
+        const combinedWordSet = new Set([...discoveredWords, ...vaultedWords]);
+
+        const focalWords = Array.from(combinedWordSet).sort();
+
+        // Determine the "struggling" subset for AI summary
         const struggling = allWords
-            .filter(w => w.proficiency < 0.6 && w.contextCount > 2)
+            .filter(w => combinedWordSet.has(w.word.toLowerCase()) && w.proficiency < 0.7)
             .sort((a, b) => b.contextCount - a.contextCount)
             .slice(0, 5);
 
-        if (struggling.length === 0) return { insight: "You're doing great! Keep reading to discover more words." };
+        const wordsData = focalWords.map(word => ({
+            word,
+            hasVaulted: vaultedWords.has(word.toLowerCase())
+        })).reverse(); // Newest first (approx-ish by set order)
 
-        const summary = struggling.map(w => `${w.word} (Seen ${w.contextCount}x, Proficiency: ${(w.proficiency * 100).toFixed(0)}%)`).join(', ');
-
-        const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
-        let response;
-        const prompt = `Analyze this student's vocabulary struggle: ${summary}. 
-            Provide a short, 2-sentence actionable coaching tip. 
-            Focus on WHY they might be struggling with these specific words and give a Mnemonic or usage tip.`;
-
-        if (openaiKey) {
-            response = await fetch(OPENAI_API_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
-                body: JSON.stringify({
-                    model: 'gpt-3.5-turbo',
-                    messages: [{ role: 'system', content: 'You are a helpful ESL Tutor.' }, { role: 'user', content: prompt }]
-                })
-            });
-        } else {
-            // Fallback: simplified coaching if no key
-            return { insight: `You've seen "${struggling[0].word}" many times. Try using it in a sentence today!` };
+        if (focalWords.length === 0) {
+            return { insight: "Insights taking shape... Keep reading to discover more words.", words: [] };
         }
 
-        const data = await response.json();
-        return { insight: data.choices[0].message.content, words: struggling.map(w => w.word) };
+        let insight = `You're focusing on ${focalWords.length} words. Keep practicing to build mastery!`;
+        const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
+
+        if (openaiKey && struggling.length > 0) {
+            const summary = struggling.map(w => `${w.word} (Seen ${w.contextCount}x)`).join(', ');
+            try {
+                const prompt = `Analyze: ${summary}. Provide a concise 2-sentence actionable coaching tip for an ESL student.`;
+                const response = await fetch(OPENAI_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+                    body: JSON.stringify({
+                        model: 'gpt-3.5-turbo',
+                        messages: [{ role: 'system', content: 'You are a helpful ESL Tutor.' }, { role: 'user', content: prompt }]
+                    })
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    insight = data.choices[0].message.content;
+                }
+            } catch (apiErr) {
+                console.warn('OpenAI API Error:', apiErr);
+            }
+        } else if (struggling.length > 0) {
+            insight = `You've encountered "${struggling[0].word}" recently. Focus on its usage in different contexts.`;
+        }
+
+        return { insight, words: wordsData };
     } catch (err) {
-        console.error('Insights Error:', err);
-        return { insight: "Analysis unavailable right now." };
+        console.error('getLearningInsights Global Error:', err);
+        return { insight: "Insights unavailable.", words: [] };
     }
 }
 
@@ -359,7 +322,7 @@ async function applyDecay(manualDays = 0) {
         const store = transaction.objectStore('vocabulary');
         const request = store.getAll();
 
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             request.onsuccess = () => {
                 const words = request.result;
                 const now = Date.now();
@@ -370,22 +333,19 @@ async function applyDecay(manualDays = 0) {
                     const dayDiff = actualDiff + manualDays;
 
                     if (dayDiff > 1) {
-                        wordData.proficiency = Math.max(0, wordData.proficiency - (wordData.decayRate * Math.log1p(dayDiff)));
+                        wordData.proficiency = Math.max(0.01, wordData.proficiency - (wordData.decayRate * Math.log1p(dayDiff)));
                         store.put(wordData);
                     }
                 });
-                resolve({ success: true, count: words.length });
             };
+            transaction.oncomplete = () => resolve({ success: true, count: request.result ? request.result.length : 0 });
+            transaction.onerror = (e) => reject(e);
         });
     } catch (err) {
         console.error('Decay Error:', err);
         return { success: false };
     }
 }
-
-chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === 'decayAlarm') applyDecay();
-});
 
 async function getVocabStats() {
     try {
@@ -397,7 +357,210 @@ async function getVocabStats() {
             mastered: discoveredWords.filter(w => w.proficiency > 0.8).length
         };
     } catch (err) {
-        console.error('Stats Error:', err);
         return { total: 0, mastered: 0 };
+    }
+}
+
+async function getPracticeContent(word, forceRefresh = false) {
+    const fallback = {
+        quiz: null,
+        sentences: [
+            `The scientist's theory was eventually confirmed by colleagues who had observed similar results using the word ${word}.`,
+            `After hours of debate, the committee finally decided that the context for ${word} was sound.`,
+            `The evidence strongly suggested a different outcome than what they had initially expected for ${word}.`,
+            `It is important to consider all available evidence before you form a final opinion on ${word}.`,
+            `The study was completed after three years of intensive data collection regarding ${word}.`,
+            `Most historians have agreed that ${word} changed the course of local politics.`
+        ],
+        isFallback: true
+    };
+
+    try {
+        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
+
+        if (!forceRefresh) {
+            const cached = await self.adaptiReadStorage.getPracticeContent(word);
+            if (cached && cached.sentences && cached.sentences.length >= 6) return cached;
+        }
+
+        const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
+        const defData = await fetchDefinition(word);
+        const contextInfo = defData ? `(Definition: ${defData.definition}, Part of Speech: ${defData.partOfSpeech})` : "";
+
+        let content;
+        if (openaiKey) {
+            const prompt = `As an expert linguist, create exactly 6 DIVERSE and UNIQUE high-quality organic sentences for the word "${word}" ${contextInfo}. 
+Ensure these sentences are different from common dictionary examples. [Seed: ${Date.now()}]
+Return a JSON object:
+{
+  "quiz": null,
+  "sentences": [
+    "Sentence containing '${word}'.",
+    "Sentence containing '${word}'.",
+    "Sentence containing '${word}'.",
+    "Sentence containing '${word}'.",
+    "Sentence containing '${word}'.",
+    "Sentence containing '${word}'."
+  ]
+}
+STRICT RULES:
+1. WORD INCLUSION: The word "${word}" MUST appear in every sentence.
+2. NO META-SENTENCES.
+3. Exactly 6 sentences. JSON only.`;
+
+            const response = await fetch(OPENAI_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+                body: JSON.stringify({
+                    model: 'gpt-3.5-turbo',
+                    messages: [{ role: 'user', content: prompt }],
+                    response_format: { type: 'json_object' }
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                content = JSON.parse(data.choices[0].message.content);
+            }
+        } else {
+            // FALLBACK TO LOCAL PROXY (Using .env Key)
+            const response = await fetch(EXAMPLES_PROXY_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ word, contextInfo })
+            });
+            if (response.ok) {
+                content = await response.json();
+            }
+        }
+
+        if (!content || !content.sentences) return fallback;
+
+        // Deduplicate and Strict Validation
+        const uniqueSentences = Array.from(new Set(content.sentences.map(s => s.trim())));
+        const validatedSentences = uniqueSentences.filter(s => s.toLowerCase().includes(word.toLowerCase()));
+
+        if (validatedSentences.length < 3) return fallback;
+
+        const finalContent = { ...content, sentences: validatedSentences };
+        await self.adaptiReadStorage.savePracticeContent(word, finalContent);
+        return finalContent;
+    } catch (err) {
+        console.error('Practice Content Error:', err);
+        return fallback;
+    }
+}
+
+async function getDailyQuiz() {
+    try {
+        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
+        const allWords = await self.adaptiReadStorage.getAllWords();
+        const dueWords = allWords
+            .filter(w => w.isDiscovered && w.proficiency < 0.9)
+            .sort((a, b) => a.proficiency - b.proficiency)
+            .slice(0, 3);
+
+        if (dueWords.length === 0) return null;
+        const quizItems = await Promise.all(dueWords.map(w => getPracticeContent(w.word)));
+        return quizItems.filter(item => item !== null).map((item, idx) => ({ ...item, word: dueWords[idx].word }));
+    } catch (err) {
+        return null;
+    }
+}
+
+async function getReadingRecommendations() {
+    try {
+        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
+        const allWords = await self.adaptiReadStorage.getAllWords();
+        const struggling = allWords.filter(w => w.isDiscovered && w.proficiency < 0.5 && w.contextCount > 1).slice(0, 3);
+
+        const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
+        let link = "https://simple.wikipedia.org/wiki/Main_Page";
+        let reason = "Practice your vocabulary with simple English articles.";
+
+        if (struggling.length > 0) {
+            const wordsStr = struggling.map(w => w.word).join(', ');
+            if (openaiKey) {
+                const prompt = `Based on: ${wordsStr}, suggest ONE specific Wikipedia topic. Return JSON: { "url": "...", "reason": "..." }`;
+                try {
+                    const response = await fetch(OPENAI_API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+                        body: JSON.stringify({
+                            model: 'gpt-3.5-turbo',
+                            messages: [{ role: 'user', content: prompt }],
+                            response_format: { type: 'json_object' }
+                        })
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        const res = JSON.parse(data.choices[0].message.content);
+                        return { link: res.url, reason: res.reason };
+                    }
+                } catch (e) { console.error("Rec API Error", e); }
+            }
+            link = `https://simple.wikipedia.org/w/index.php?search=${encodeURIComponent(struggling[0].word)}`;
+            reason = `Search for "${struggling[0].word}" on Wikipedia to see it in a new context.`;
+        }
+
+        return { link, reason };
+    } catch (err) {
+        return { link: "https://simple.wikipedia.org/wiki/Main_Page", reason: "Keep reading to get personalized recommendations!" };
+    }
+}
+
+async function debugMockData(specificWord) {
+    try {
+        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
+        const testWords = specificWord ? [specificWord] : ['comprehensive', 'infrastructure', 'mitigate', 'resilient', 'paradigm'];
+
+        const db = self.adaptiReadStorage.db;
+        const transaction = db.transaction(['vocabulary'], 'readwrite');
+        const store = transaction.objectStore('vocabulary');
+
+        testWords.forEach(w => {
+            store.put({
+                word: w,
+                isDiscovered: true,
+                proficiency: 0.35 + (Math.random() * 0.1),
+                stability: 0.2,
+                decayRate: 0.1,
+                contextCount: 3,
+                lastSeen: Date.now(),
+                lastInteraction: Date.now() - (1000 * 60 * 60 * 24 * 2)
+            });
+        });
+
+        return new Promise((resolve, reject) => {
+            transaction.oncomplete = () => resolve({ success: true });
+            transaction.onerror = (e) => reject(e);
+        });
+    } catch (err) {
+        console.error('Mock Error:', err);
+        return { success: false };
+    }
+}
+
+async function simplifySentence(text) {
+    const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
+    if (!openaiKey) return text;
+
+    try {
+        const response = await fetch(OPENAI_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+            body: JSON.stringify({
+                model: 'gpt-3.5-turbo',
+                messages: [
+                    { role: 'system', content: 'Simplify this sentence for an Adult ESL beginner. Keep it very short and easy.' },
+                    { role: 'user', content: text }
+                ]
+            })
+        });
+        if (!response.ok) return text;
+        const data = await response.json();
+        return data.choices[0].message.content;
+    } catch (err) {
+        return text;
     }
 }

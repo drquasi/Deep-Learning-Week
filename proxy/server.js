@@ -69,6 +69,69 @@ app.post('/simplify', async (req, res) => {
     }
 });
 
+app.post('/examples', async (req, res) => {
+    const { word, contextInfo } = req.body;
+
+    if (!word) {
+        return res.status(400).json({ error: 'Word is required' });
+    }
+
+    if (!OPENAI_API_KEY || OPENAI_API_KEY === 'YOUR_OPENAI_API_KEY_HERE') {
+        return res.status(500).json({ error: 'Proxy API Key not configured' });
+    }
+
+    try {
+        const prompt = `As an expert linguist, create exactly 6 DIVERSE and UNIQUE high-quality organic sentences for the word "${word}" ${contextInfo || ""}. 
+Ensure these sentences are different from common dictionary examples. [Seed: ${Date.now()}]
+
+Return a JSON object:
+{
+  "quiz": null,
+  "sentences": [
+    "A natural sentence containing the word '${word}'.",
+    "A different natural sentence containing the word '${word}'.",
+    "A third natural sentence containing the word '${word}'.",
+    "A fourth natural sentence containing the word '${word}'.",
+    "A fifth natural sentence containing the word '${word}'.",
+    "A sixth natural sentence containing the word '${word}'."
+  ]
+}
+
+STRICT RULES:
+1. WORD INCLUSION: The word "${word}" MUST appear in every single sentence.
+2. NO META-SENTENCES: No "I am studying ${word}" or "The word ${word} means...". Use the word for its meaning.
+3. ORGANIC USAGE: Create sentences native speakers actually say. 
+4. Exactly 6 sentences. JSON only.`;
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${OPENAI_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: 'gpt-3.5-turbo',
+                messages: [{ role: 'user', content: prompt }],
+                response_format: { type: 'json_object' }
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+            console.error('OpenAI Error:', data.error);
+            return res.status(500).json({ error: 'OpenAI API Error' });
+        }
+
+        const content = JSON.parse(data.choices[0].message.content);
+        res.json(content);
+
+    } catch (err) {
+        console.error('Proxy Error:', err);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`AdaptiRead Proxy running on http://localhost:${PORT}`);
 });

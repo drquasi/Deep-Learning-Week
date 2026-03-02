@@ -64,6 +64,7 @@
                 </div>
             </div>
 
+
             <div class="stats-grid">
                 <div class="stat-item">
                     <span class="stat-value" id="stats-seen">0</span>
@@ -91,53 +92,112 @@
                 </button>
                 <h2>Insights</h2>
             </div>
-            <div class="insights-content">
-                <div id="insights-loading" class="hidden">
-                    <div class="spinner"></div>
-                    <p class="stat-label" style="text-align: center;">Analyzing...</p>
-                </div>
-                <div id="insights-display">
-                    <p class="insight-text" id="ai-insight-text">Complete more lessons to see insights.</p>
-                    <div id="struggling-words-container" class="hidden">
-                        <h4 class="label-text" style="margin-top: 24px; margin-bottom: 12px; font-size: 0.7rem;">WORDS
-                            TO FOCUS ON</h4>
-                        <ul id="word-list" class="mini-list"></ul>
+
+            <div id="insights-loading" class="hidden" style="text-align: center; padding: 20px;">
+                <div class="spinner" style="margin: 0 auto 12px;"></div>
+                <p class="stat-label">Analyzing...</p>
+            </div>
+
+            <div id="insights-display" class="insights-content hidden">
+                <p id="ai-insight-text" class="insight-text"
+                    style="margin-bottom: 24px; font-style: italic; color: var(--accent);"></p>
+
+                <div id="lessons-learned-container">
+                    <h4 class="label-text" style="margin-bottom: 12px; font-size: 0.7rem; text-transform: uppercase;">
+                        LESSONS LEARNED</h4>
+                    <div id="lessons-empty-msg" class="insight-text hidden"
+                        style="text-align: center; color: var(--text-dim); padding: 20px;">
+                        No focal words yet. Keep reading!
                     </div>
+                    <ul id="word-list" class="mini-list"></ul>
                 </div>
             </div>
         </div>
+    </div>
+    </div>
 
-        <div id="debug-panel" class="hidden">
-            <div class="panel-header">
-                <button id="close-debug" class="icon-btn">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round">
-                        <line x1="19" y1="12" x2="5" y2="12"></line>
-                        <polyline points="12 19 5 12 12 5"></polyline>
-                    </svg>
-                </button>
-                <h2>Memory</h2>
+    <!-- NEW: Vault Detail Panel -->
+    <div id="vault-detail-panel" class="hidden">
+        <div class="panel-header">
+            <button id="close-vault-detail" class="icon-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <line x1="19" y1="12" x2="5" y2="12"></line>
+                    <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+            </button>
+            <h2 id="vault-word-title">Vault</h2>
+        </div>
+        <div class="insights-content">
+            <ul id="vault-sentence-list" class="mini-list"></ul>
+        </div>
+    </div>
+
+    <div id="debug-panel" class="hidden">
+        <div class="panel-header">
+            <button id="close-debug" class="icon-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <line x1="19" y1="12" x2="5" y2="12"></line>
+                    <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+            </button>
+            <h2>Memory</h2>
+        </div>
+        <div class="debug-content">
+            <div style="margin-bottom: 24px; display: grid; gap: 8px;">
+                <button id="force-decay" class="primary-btn glass-btn">Simulate 7-day decay</button>
+                <button id="debug-mock-data" class="primary-btn"
+                    style="background: rgba(59, 130, 246, 0.1); color: var(--accent); border: 1px solid var(--accent);">Mock
+                    5 Struggling Words</button>
             </div>
-            <div class="debug-content" style="overflow-y: auto; flex: 1;">
-                <div style="margin-bottom: 24px;">
-                    <button id="force-decay" class="primary-btn glass-btn">Simulate 7-day decay</button>
+            <table id="vocab-table">
+                <thead>
+                    <tr>
+                        <th>Word</th>
+                        <th>Level</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="vocab-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="practice-panel" class="hidden">
+        <div class="panel-header">
+            <button id="close-practice" class="icon-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <line x1="19" y1="12" x2="5" y2="12"></line>
+                    <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+            </button>
+            <h2 id="practice-word-title">Examples</h2>
+        </div>
+        <div class="practice-content">
+            <div id="practice-loading" class="hidden">
+                <div class="spinner"></div>
+                <p class="stat-label" style="text-align: center;">Preparing...</p>
+            </div>
+            <div id="practice-display">
+                <h4 class="label-text" style="margin-bottom: 12px; font-size: 0.7rem;">USAGE EXAMPLES</h4>
+                <ul id="practice-sentences" class="mini-list"></ul>
+
+                <div id="quiz-section" style="margin-top: 24px;">
+                    <h4 class="label-text" style="margin-bottom: 12px; font-size: 0.7rem;">QUICK CHECK</h4>
+                    <div class="insight-text" id="quiz-question" style="margin-bottom: 12px;"></div>
+                    <div id="quiz-options" style="display: grid; gap: 8px;"></div>
                 </div>
-                <table id="vocab-table">
-                    <thead>
-                        <tr>
-                            <th>Word</th>
-                            <th>Level</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="vocab-body"></tbody>
-                </table>
+
+                <div id="quiz-feedback" class="hidden"
+                    style="margin-top: 16px; padding: 12px; border-radius: 8px; font-size: 0.85rem; text-align: center;">
+                </div>
             </div>
         </div>
+    </div>
 
-        <footer>
-            <p>AdaptiRead v1.0 • Privacy focused</p>
-        </footer>
+
     </div>
     <script src="popup.js"></script>
 </body>

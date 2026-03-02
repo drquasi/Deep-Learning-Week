@@ -11,8 +11,8 @@ function normalizeSentence(text) {
     if (!text) return '';
     return text.toLowerCase()
         .replace(/\s+/g, ' ')
-        .trim()
-        .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "");
+        .replace(/[^\w\s\-\'\u00C0-\u017F]/g, '')
+        .trim();
 }
 
 function safeSendMessage(message) {
@@ -252,6 +252,7 @@ async function scanAndProcess(isInitial = false) {
 // --- INTERACTION LOGIC ---
 let activeTooltip = null;
 let tooltipHideTimeout = null;
+let hoverTimer = null;
 
 document.addEventListener('mouseover', async (e) => {
     const isTooltip = e.target.closest('.adaptiread-tooltip');
@@ -269,11 +270,22 @@ document.addEventListener('mouseover', async (e) => {
     if (activeTooltip && activeTooltip._target === target) return;
 
     const word = target.getAttribute('data-word');
+
+    // Show tooltip immediately
     showTooltip(target, word);
-    safeSendMessage({ type: 'LOG_INTERACTION', word, interaction: 'hover' });
+
+    // 500ms delay for logging interaction (discovery)
+    if (hoverTimer) clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => {
+        safeSendMessage({ type: 'LOG_INTERACTION', word, interaction: 'hover' });
+    }, 500);
 });
 
 document.addEventListener('mouseout', (e) => {
+    if (hoverTimer) {
+        clearTimeout(hoverTimer);
+        hoverTimer = null;
+    }
     if (activeTooltip) {
         if (tooltipHideTimeout) clearTimeout(tooltipHideTimeout);
         tooltipHideTimeout = setTimeout(() => {
@@ -311,23 +323,135 @@ async function showTooltip(target, word) {
     if (!activeTooltip || activeTooltip._target !== target) return;
 
     if (data) {
+        // Mark as discovered because the user has 'seen' the definition
+        safeSendMessage({ type: 'LOG_INTERACTION', word, interaction: 'hover' });
+        if (hoverTimer) {
+            clearTimeout(hoverTimer);
+            hoverTimer = null;
+        }
+
         activeTooltip.innerHTML = `
             <div class="word">${data.word}</div>
             <div class="pos">${data.partOfSpeech}</div>
             <div class="definition">${data.definition}</div>
             <div class="synonym">${data.synonym ? `Synonym: ${data.synonym}` : ''}</div>
-            <div class="tutor-actions"><button class="btn-known" id="adaptiread-mark-known">I Already Know This</button></div>
+            <div class="tutor-actions" style="display: flex; gap: 8px;">
+                <button class="btn-known" id="adaptiread-mark-known" style="flex: 2;">I Already Know This</button>
+                <button class="btn-known" id="adaptiread-view-examples" style="flex: 1; background: #374151;">Examples</button>
+            </div>
         `;
         activeTooltip.querySelector('#adaptiread-mark-known').onclick = (e) => {
             e.stopPropagation();
+            safeSendMessage({ type: 'LOG_INTERACTION', word: data.word, interaction: 'click' });
             safeSendMessage({ type: 'MARK_KNOWN', word: data.word });
             target.classList.add('mastered');
             setTimeout(() => target.replaceWith(target.textContent), 500);
             hideTooltip();
         };
+
+        activeTooltip.querySelector('#adaptiread-view-examples').onclick = (e) => {
+            e.stopPropagation();
+            safeSendMessage({ type: 'LOG_INTERACTION', word: data.word, interaction: 'click' });
+            showInPageExamples(data.word, activeTooltip, data, target);
+        };
     } else {
         activeTooltip.innerHTML = `<div class="definition">Definition not found.</div>`;
     }
+}
+
+async function showInPageExamples(word, tooltip, wordData, target, forceRefresh = false) {
+    tooltip.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div class="word" style="margin: 0;">Examples: ${word}</div>
+            <button id="adaptiread-close-examples" style="background: none; border: none; color: #9ca3af; cursor: pointer; padding: 4px;">✕</button>
+        </div>
+        <div class="adaptiread-spinner" style="margin: 20px auto;"></div>
+        <p style="font-size: 11px; text-align: center; color: #9ca3af;">Loading usage samples...</p>
+    `;
+
+    tooltip.querySelector('#adaptiread-close-examples').onclick = (e) => {
+        e.stopPropagation();
+        hideTooltip();
+    };
+
+    const content = await safeSendMessage({ type: 'GET_PRACTICE_CONTENT', word, forceRefresh });
+    if (!activeTooltip || !tooltip.parentElement) return;
+
+    if (!content || !content.sentences || content.sentences.length === 0) {
+        tooltip.innerHTML = `
+            <div class="word">${word}</div>
+            <div class="definition">No examples found for this word.</div>
+            <button id="adaptiread-error-close" class="btn-known" style="margin-top: 12px; background: #374151;">Close</button>
+        `;
+        tooltip.querySelector('#adaptiread-error-close').onclick = (e) => {
+            e.stopPropagation();
+            hideTooltip();
+        };
+        return;
+    }
+
+    let currentIndex = 0;
+    const sentences = content.sentences;
+
+    function renderFlashcard() {
+        if (currentIndex >= sentences.length) {
+            tooltip.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <div class="word" style="margin: 0;">Examples: ${word}</div>
+                    <button id="adaptiread-close-end" style="background: none; border: none; color: #9ca3af; cursor: pointer; padding: 4px;">✕</button>
+                </div>
+                <div style="text-align: center; padding: 10px 0;">
+                    <p style="font-size: 14px; color: #10b981; font-weight: 500;">Review Complete!</p>
+                    <p style="font-size: 11px; color: #9ca3af; margin-top: 4px; margin-bottom: 16px;">Proficiency updated.</p>
+                    <button id="adaptiread-gen-more" class="btn-known" style="background: #374151; font-size: 11px; padding: 8px;">Generate 6 More Examples</button>
+                </div>
+            `;
+            tooltip.querySelector('#adaptiread-close-end').onclick = () => hideTooltip();
+            tooltip.querySelector('#adaptiread-gen-more').onclick = (e) => {
+                e.stopPropagation();
+                showInPageExamples(word, tooltip, wordData, target, true); // Force Refresh!
+            };
+            return;
+        }
+
+        const sentence = sentences[currentIndex];
+        tooltip.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div class="word" style="margin: 0;">Examples: ${word}</div>
+                <button id="adaptiread-close-card" style="background: none; border: none; color: #9ca3af; cursor: pointer; padding: 4px;">✕</button>
+            </div>
+            <div class="pos">${wordData.partOfSpeech}</div>
+            <div style="min-height: 80px; display: flex; align-items: center; margin-bottom: 16px;">
+                <p style="font-size: 13px; color: #f9fafb; line-height: 1.5; border-left: 3px solid #3b82f6; padding-left: 12px; width: 100%;">${sentence}</p>
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <button id="card-understand" class="btn-known" style="background: #059669; flex: 1; font-size: 11px; padding: 8px;">Understand</button>
+                <button id="card-difficult" class="btn-known" style="background: #374151; flex: 1; font-size: 11px; padding: 8px;">Difficult</button>
+            </div>
+            <div style="margin-top: 12px; font-size: 10px; color: #6b7280; text-align: center;">${currentIndex + 1} / ${sentences.length}</div>
+        `;
+
+        tooltip.querySelector('#adaptiread-close-card').onclick = (e) => {
+            e.stopPropagation();
+            hideTooltip();
+        };
+
+        tooltip.querySelector('#card-understand').onclick = (e) => {
+            e.stopPropagation();
+            safeSendMessage({ type: 'LOG_INTERACTION', word, interaction: 'practice_viewed' });
+            currentIndex++;
+            renderFlashcard();
+        };
+
+        tooltip.querySelector('#card-difficult').onclick = (e) => {
+            e.stopPropagation();
+            safeSendMessage({ type: 'LOG_MISUNDERSTOOD', word, sentence });
+            currentIndex++;
+            renderFlashcard();
+        };
+    }
+
+    renderFlashcard();
 }
 
 function hideTooltip() {
@@ -382,23 +506,6 @@ chrome.storage.local.get(['enabled'], (res) => {
     }
 });
 
-// --- INIT ---
-console.log('AdaptiRead: Content script loaded');
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (msg.type === 'START_SIMPLIFY') {
-        startAdaptiRead();
-    }
-});
-
-chrome.storage.local.get(['enabled'], (res) => {
-    isEnabled = res.enabled !== false;
-    console.log('AdaptiRead: isEnabled =', isEnabled);
-    if (isEnabled && chrome.runtime?.id) {
-        injectStyles();
-        showAskToSimplifyPopup();
-    }
-});
-
 const TOOLTIP_CSS = `
     .adaptiread-highlight {
         background-color: rgba(59, 130, 246, 0.1);
@@ -419,7 +526,8 @@ const TOOLTIP_CSS = `
     .adaptiread-tooltip.visible { opacity: 1; visibility: visible; }
     .adaptiread-tooltip .word { font-size: 16px; font-weight: 500; margin-bottom: 4px; color: #f9fafb; }
     .adaptiread-tooltip .pos { font-size: 10px; font-weight: 500; text-transform: uppercase; color: #3b82f6; margin-bottom: 12px; letter-spacing: 0.5px; }
-    .adaptiread-tooltip .definition { font-size: 13px; line-height: 1.6; color: #9ca3af; margin-bottom: 16px; }
+    .adaptiread-tooltip .definition { font-size: 13px; line-height: 1.6; color: #9ca3af; margin-bottom: 8px; }
+    .adaptiread-tooltip .synonym { font-size: 13px; color: #9ca3af; margin-bottom: 16px; font-style: italic; }
     .adaptiread-tooltip .btn-known { width: 100%; background: #3b82f6; border: none; border-radius: 6px; padding: 10px; color: white; font-size: 12px; font-weight: 500; cursor: pointer; transition: opacity 0.2s; }
     .adaptiread-tooltip .btn-known:hover { opacity: 0.9; }
     
