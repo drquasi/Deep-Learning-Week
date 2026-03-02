@@ -41,7 +41,7 @@ function showAskToSimplifyPopup() {
     popup.id = 'adaptiread-ask-popup';
     popup.className = 'adaptiread-ask-popup';
     popup.innerHTML = `
-        <div class="title">✨ Simplify Reading?</div>
+        <div class="title">Simplify Reading?</div>
         <div class="desc">AdaptiRead can scan this page to highlight complex words and provide definitions.</div>
         <div class="actions">
             <button class="btn-yes">Yes, Simplify</button>
@@ -251,11 +251,21 @@ async function scanAndProcess(isInitial = false) {
 
 // --- INTERACTION LOGIC ---
 let activeTooltip = null;
+let tooltipHideTimeout = null;
 
 document.addEventListener('mouseover', async (e) => {
-    const target = e.target.closest('.adaptiread-highlight');
-    if (!target || !chrome.runtime?.id) return;
+    const isTooltip = e.target.closest('.adaptiread-tooltip');
+    const isHighlight = e.target.closest('.adaptiread-highlight');
 
+    if (isTooltip || isHighlight) {
+        if (tooltipHideTimeout) {
+            clearTimeout(tooltipHideTimeout);
+            tooltipHideTimeout = null;
+        }
+    }
+
+    if (!isHighlight || !chrome.runtime?.id) return;
+    const target = e.target.closest('.adaptiread-highlight');
     if (activeTooltip && activeTooltip._target === target) return;
 
     const word = target.getAttribute('data-word');
@@ -264,8 +274,12 @@ document.addEventListener('mouseover', async (e) => {
 });
 
 document.addEventListener('mouseout', (e) => {
-    if (e.relatedTarget?.closest?.('.adaptiread-tooltip, .adaptiread-highlight')) return;
-    hideTooltip();
+    if (activeTooltip) {
+        if (tooltipHideTimeout) clearTimeout(tooltipHideTimeout);
+        tooltipHideTimeout = setTimeout(() => {
+            hideTooltip();
+        }, 300);
+    }
 });
 
 async function showTooltip(target, word) {
@@ -320,8 +334,14 @@ function hideTooltip() {
     if (activeTooltip) {
         const el = activeTooltip;
         el.classList.remove('visible');
-        setTimeout(() => el.remove(), 300);
+        setTimeout(() => {
+            if (el.parentElement) el.remove();
+        }, 300);
         activeTooltip = null;
+        if (tooltipHideTimeout) {
+            clearTimeout(tooltipHideTimeout);
+            tooltipHideTimeout = null;
+        }
     }
 }
 
@@ -362,50 +382,71 @@ chrome.storage.local.get(['enabled'], (res) => {
     }
 });
 
+// --- INIT ---
+console.log('AdaptiRead: Content script loaded');
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'START_SIMPLIFY') {
+        startAdaptiRead();
+    }
+});
+
+chrome.storage.local.get(['enabled'], (res) => {
+    isEnabled = res.enabled !== false;
+    console.log('AdaptiRead: isEnabled =', isEnabled);
+    if (isEnabled && chrome.runtime?.id) {
+        injectStyles();
+        showAskToSimplifyPopup();
+    }
+});
+
 const TOOLTIP_CSS = `
     .adaptiread-highlight {
-        background: linear-gradient(120deg, rgba(147, 51, 234, 0.15) 0%, rgba(79, 70, 229, 0.15) 100%);
-        border-bottom: 2px solid rgba(147, 51, 234, 0.4);
+        background-color: rgba(59, 130, 246, 0.1);
+        border-bottom: 1px solid #3b82f6;
         cursor: help;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: all 0.2s ease;
         border-radius: 2px;
         padding: 0 1px;
     }
-    .adaptiread-highlight:hover { background: rgba(147, 51, 234, 0.25); border-bottom-color: rgba(147, 51, 234, 0.8); }
+    .adaptiread-highlight:hover { background: rgba(59, 130, 246, 0.2); }
     .adaptiread-tooltip {
-        position: absolute; z-index: 2147483647; width: 280px; background: rgba(15, 15, 20, 0.95);
-        backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px;
-        padding: 16px; color: white; font-family: 'Inter', sans-serif; opacity: 0; visibility: hidden;
-        transition: all 0.3s ease;
+        position: absolute; z-index: 2147483647; width: 280px; 
+        background: #1f2937; border: 1px solid #374151; border-radius: 12px;
+        padding: 20px; color: #f9fafb; font-family: 'Inter', sans-serif; 
+        opacity: 0; visibility: hidden; transition: all 0.2s ease;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
     }
     .adaptiread-tooltip.visible { opacity: 1; visibility: visible; }
-    .adaptiread-tooltip .word { font-size: 18px; font-weight: 700; margin-bottom: 4px; font-family: 'Outfit', sans-serif; }
-    .adaptiread-tooltip .pos { font-size: 11px; text-transform: uppercase; color: #9333ea; margin-bottom: 12px; }
-    .adaptiread-tooltip .definition { font-size: 14px; line-height: 1.5; color: rgba(255, 255, 255, 0.8); margin-bottom: 12px; }
-    .adaptiread-tooltip .btn-known { width: 100%; background: #9333ea; border: none; border-radius: 6px; padding: 8px; color: white; font-weight: 600; cursor: pointer; }
+    .adaptiread-tooltip .word { font-size: 16px; font-weight: 500; margin-bottom: 4px; color: #f9fafb; }
+    .adaptiread-tooltip .pos { font-size: 10px; font-weight: 500; text-transform: uppercase; color: #3b82f6; margin-bottom: 12px; letter-spacing: 0.5px; }
+    .adaptiread-tooltip .definition { font-size: 13px; line-height: 1.6; color: #9ca3af; margin-bottom: 16px; }
+    .adaptiread-tooltip .btn-known { width: 100%; background: #3b82f6; border: none; border-radius: 6px; padding: 10px; color: white; font-size: 12px; font-weight: 500; cursor: pointer; transition: opacity 0.2s; }
+    .adaptiread-tooltip .btn-known:hover { opacity: 0.9; }
+    
     .adaptiread-global-loading {
-        position: fixed; top: 20px; right: 20px; z-index: 2147483647;
-        background: rgba(15, 15, 20, 0.95); backdrop-filter: blur(12px);
-        padding: 12px 20px; border-radius: 50px; border: 1px solid rgba(255, 255, 255, 0.1);
-        color: white; display: flex; align-items: center; gap: 12px; font-size: 13px;
+        position: fixed; top: 24px; right: 24px; z-index: 2147483647;
+        background: #1f2937; padding: 12px 20px; border-radius: 50px; border: 1px solid #374151;
+        color: #f9fafb; display: flex; align-items: center; gap: 12px; font-size: 13px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
-    .adaptiread-spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.1); border-top-color: #9333ea; border-radius: 50%; animation: adaptiread-spin 0.8s linear infinite; }
+    .adaptiread-spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.1); border-top-color: #3b82f6; border-radius: 50%; animation: adaptiread-spin 0.8s linear infinite; }
     @keyframes adaptiread-spin { to { transform: rotate(360deg); } }
+    
     .adaptiread-ask-popup {
-        position: fixed; top: 20px; right: 20px; z-index: 2147483647; width: 300px;
-        background: rgba(15, 15, 20, 0.95); backdrop-filter: blur(12px); padding: 20px;
-        border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); color: white;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.5); font-family: 'Inter', sans-serif;
-        animation: adaptiread-slide-in 0.4s ease-out;
+        position: fixed; top: 24px; right: 24px; z-index: 2147483647; width: 300px;
+        background: #1f2937; padding: 24px; border-radius: 16px; border: 1px solid #374151; 
+        color: #f9fafb; font-family: 'Inter', sans-serif;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        animation: adaptiread-slide-in 0.3s ease-out;
     }
     @keyframes adaptiread-slide-in {
-        from { transform: translateX(100%); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
+        from { transform: translateY(-10px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
     }
-    .adaptiread-ask-popup .title { font-size: 16px; font-weight: 700; margin-bottom: 8px; font-family: 'Outfit', sans-serif; }
-    .adaptiread-ask-popup .desc { font-size: 13px; color: rgba(255,255,255,0.7); margin-bottom: 16px; line-height: 1.4; }
-    .adaptiread-ask-popup .actions { display: flex; gap: 10px; }
-    .adaptiread-ask-popup button { flex: 1; padding: 10px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; font-size: 12px; transition: all 0.2s; }
-    .adaptiread-ask-popup .btn-yes { background: #9333ea; color: white; }
-    .adaptiread-ask-popup .btn-no { background: rgba(255,255,255,0.1); color: white; }
+    .adaptiread-ask-popup .title { font-size: 15px; font-weight: 500; margin-bottom: 8px; }
+    .adaptiread-ask-popup .desc { font-size: 13px; color: #9ca3af; margin-bottom: 18px; line-height: 1.5; }
+    .adaptiread-ask-popup .actions { display: flex; gap: 8px; }
+    .adaptiread-ask-popup button { flex: 1; padding: 10px; border-radius: 8px; border: none; font-weight: 500; cursor: pointer; font-size: 12px; transition: all 0.2s; }
+    .adaptiread-ask-popup .btn-yes { background: #3b82f6; color: white; }
+    .adaptiread-ask-popup .btn-no { background: #374151; color: #f9fafb; }
 `;

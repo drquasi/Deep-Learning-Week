@@ -1,82 +1,43 @@
-/* AdaptiRead Content Styles - Stable Overlapping Grid */
+/* AdaptiRead Content Styles - Clean & Professional */
 .adaptiread-wrapper {
-    display: inline-grid;
+    display: inline-flex;
     vertical-align: baseline;
     cursor: help;
     margin: 0;
     padding: 0;
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr;
+    position: relative;
     line-height: normal;
-    overflow: visible;
-    /* Allow highlight to show */
-    white-space: nowrap;
-    /* Prevent internal wrapping which causes jitter */
-}
-
-.adaptiread-original,
-.adaptiread-simplified {
-    grid-area: 1 / 1;
-    /* Stack exactly on top of each other */
-    white-space: nowrap;
-    transition: opacity 0.4s ease, transform 0.4s ease;
-    display: inline-block;
-    width: auto;
 }
 
 .adaptiread-simplified {
-    opacity: 0;
-    pointer-events: none;
-    background-color: #00e5ff !important;
-    color: #0a0a14 !important;
+    background-color: #3b82f6 !important;
+    color: white !important;
     border-radius: 4px;
-    font-weight: 700;
     padding: 0 4px;
-    transform: translateY(2px);
-    /* Slight offset for wipe feel */
+    font-weight: 500;
 }
 
 .adaptiread-original {
     opacity: 1;
-    transform: translateY(0);
 }
 
-/* Page Load Wipe State */
-.adaptiread-wrapper.active .adaptiread-simplified {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateY(0);
-}
-
-.adaptiread-wrapper.active .adaptiread-original {
-    opacity: 0;
-    pointer-events: none;
-    /* We don't set width: 0 here to keep the container size based on the SIMPLIFIED word */
-}
-
-/* Hover Reveal - Seamless In-Sentence Swap */
-/* When hovering, we swap visibility but KEEP the container size of the simplified word 
-   to prevent the "spasm" caused by line-recalculation. */
-.adaptiread-wrapper.active:hover .adaptiread-simplified {
-    opacity: 0 !important;
-    transition: none !important;
-}
-
-.adaptiread-wrapper.active:hover .adaptiread-original {
-    opacity: 1 !important;
-    transition: none !important;
-}
-
-/* Highlight Mode Styling */
+/* Light background tint for highlights */
 .adaptiread-highlight {
-    background-color: rgba(0, 229, 255, 0.2);
-    border-radius: 4px;
-    padding: 0 2px;
+    background-color: rgba(59, 130, 246, 0.1);
+    border-bottom: 1px solid #3b82f6;
+    border-radius: 2px;
+    padding: 0 1px;
     cursor: help;
+    transition: background-color 0.2s;
 }
 
-.adaptiread-highlight.simplified-done {
-    background-color: #00e5ff !important;
-    color: #0a0a14 !important;
-    padding: 0 4px;
+.adaptiread-highlight:hover {
+    background-color: rgba(59, 130, 246, 0.2);
+}
+
+.adaptiread-highlight.mastered {
+    background-color: transparent !important;
+    border-bottom: none !important;
+    color: inherit !important;
+    transition: all 0.5s ease;
 }

@@ -8,28 +8,32 @@
     <link rel="stylesheet" href="popup.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;600;700&display=swap"
-        rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 
 <body>
     <div class="glass-container">
         <header>
             <h1 id="app-title">AdaptiRead</h1>
-            <button id="settings-toggle" class="icon-btn" title="Settings">⚙️</button>
+            <button id="settings-toggle" class="icon-btn" title="Settings">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path
+                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                    </path>
+                </svg>
+            </button>
         </header>
 
         <main>
             <div id="simplify-action-container" style="margin-bottom: 20px;">
-                <button id="simplify-page-btn" class="primary-btn"
-                    style="width: 100%; padding: 12px; font-size: 14px; background: linear-gradient(135deg, #9333ea 0%, #4f46e5 100%);">✨
-                    Simplify This Page</button>
+                <button id="simplify-page-btn" class="primary-btn">Simplify current page</button>
             </div>
 
             <div class="status-card">
                 <label class="switch-container">
-                    <span class="label-text">Simplification</span>
+                    <span class="label-text">Enable highlights</span>
                     <input type="checkbox" id="master-toggle" checked>
                     <span class="slider"></span>
                 </label>
@@ -37,7 +41,7 @@
 
             <div class="status-card">
                 <label class="switch-container">
-                    <span class="label-text">Auto-Simplify (Wipe)</span>
+                    <span class="label-text">Auto-simplify on load</span>
                     <input type="checkbox" id="auto-simplify-toggle" checked>
                     <span class="slider"></span>
                 </label>
@@ -45,21 +49,17 @@
 
             <div id="settings-panel" class="hidden-panel">
                 <div class="level-section">
-                    <label for="openai-key">OpenAI API Key</label>
-                    <div class="input-group" style="display: flex; gap: 8px; margin-top: 8px;">
-                        <input type="password" id="openai-key" placeholder="sk-..."
-                            style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: white;">
-                        <button id="save-key" class="primary-btn"
-                            style="min-width: 60px; padding: 0 12px;">Save</button>
+                    <label class="label-text" style="display: block; margin-bottom: 8px;">OpenAI API Key</label>
+                    <div class="input-group" style="display: flex; gap: 8px;">
+                        <input type="password" id="openai-key" placeholder="sk-...">
+                        <button id="save-key" class="primary-btn">Save</button>
                     </div>
                 </div>
                 <div class="level-section">
-                    <label>Developer Tools</label>
-                    <div style="display: flex; gap: 8px; margin-top: 8px;">
-                        <button id="open-debug" class="primary-btn glass-btn" style="font-size: 11px; padding: 6px;">🔍
-                            Inspect Memory</button>
-                        <button id="reset-db" class="primary-btn"
-                            style="background: #ff4444; font-size: 11px; padding: 6px;">🗑 Reset All</button>
+                    <label class="label-text" style="display: block; margin-bottom: 8px;">Maintenance</label>
+                    <div style="display: flex; gap: 8px;">
+                        <button id="open-debug" class="primary-btn glass-btn">Debug tools</button>
+                        <button id="reset-db" class="primary-btn" style="background: #ef4444;">Reset data</button>
                     </div>
                 </div>
             </div>
@@ -67,7 +67,7 @@
             <div class="stats-grid">
                 <div class="stat-item">
                     <span class="stat-value" id="stats-seen">0</span>
-                    <span class="stat-label">Words Interacted</span>
+                    <span class="stat-label">Words</span>
                 </div>
                 <div class="stat-item">
                     <span class="stat-value" id="stats-mastered">0</span>
@@ -75,26 +75,32 @@
                 </div>
             </div>
 
-            <div class="tutor-section" style="margin-top: 20px;">
-                <button id="view-insights" class="primary-btn glass-btn">✨ Generate Weekly Digest</button>
+            <div class="tutor-section">
+                <button id="view-insights" class="primary-btn glass-btn">View learning insights</button>
             </div>
         </main>
 
         <div id="insights-panel" class="hidden">
             <div class="panel-header">
-                <button id="close-insights" class="icon-btn">←</button>
-                <h2>Weekly Digest</h2>
+                <button id="close-insights" class="icon-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <line x1="19" y1="12" x2="5" y2="12"></line>
+                        <polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                </button>
+                <h2>Insights</h2>
             </div>
             <div class="insights-content">
                 <div id="insights-loading" class="hidden">
                     <div class="spinner"></div>
-                    <p>AI is analyzing your learning state...</p>
+                    <p class="stat-label" style="text-align: center;">Analyzing...</p>
                 </div>
                 <div id="insights-display">
-                    <p class="insight-text" id="ai-insight-text">Your tutor insights will appear here after analysis.
-                    </p>
+                    <p class="insight-text" id="ai-insight-text">Complete more lessons to see insights.</p>
                     <div id="struggling-words-container" class="hidden">
-                        <h4 style="margin-top: 15px; font-size: 13px; color: #888;">WORDS TO FOCUS ON:</h4>
+                        <h4 class="label-text" style="margin-top: 24px; margin-bottom: 12px; font-size: 0.7rem;">WORDS
+                            TO FOCUS ON</h4>
                         <ul id="word-list" class="mini-list"></ul>
                     </div>
                 </div>
@@ -103,21 +109,25 @@
 
         <div id="debug-panel" class="hidden">
             <div class="panel-header">
-                <button id="close-debug" class="icon-btn">←</button>
-                <h2>Tutor Memory</h2>
+                <button id="close-debug" class="icon-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <line x1="19" y1="12" x2="5" y2="12"></line>
+                        <polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                </button>
+                <h2>Memory</h2>
             </div>
-            <div class="debug-content" style="overflow-y: auto; max-height: 280px; padding-bottom: 15px;">
-                <div style="margin-bottom: 15px; display: flex; gap: 10px;">
-                    <button id="force-decay" class="primary-btn glass-btn" style="font-size: 11px; padding: 6px;">🗓
-                        Force 7-Day Decay</button>
+            <div class="debug-content" style="overflow-y: auto; flex: 1;">
+                <div style="margin-bottom: 24px;">
+                    <button id="force-decay" class="primary-btn glass-btn">Simulate 7-day decay</button>
                 </div>
-                <table id="vocab-table"
-                    style="width: 100%; font-size: 11px; border-collapse: collapse; background: rgba(0,0,0,0.2); border-radius: 8px;">
+                <table id="vocab-table">
                     <thead>
-                        <tr style="text-align: left; color: #888; border-bottom: 1px solid rgba(255,255,255,0.1);">
-                            <th style="padding: 8px;">Word</th>
-                            <th style="padding: 8px;">Prof</th>
-                            <th style="padding: 8px;">Stab</th>
+                        <tr>
+                            <th>Word</th>
+                            <th>Level</th>
+                            <th>Status</th>
                         </tr>
                     </thead>
                     <tbody id="vocab-body"></tbody>
@@ -126,7 +136,7 @@
         </div>
 
         <footer>
-            <p>AdaptiRead v1.0 • Privacy Focused</p>
+            <p>AdaptiRead v1.0 • Privacy focused</p>
         </footer>
     </div>
     <script src="popup.js"></script>
