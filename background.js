@@ -1,6 +1,7 @@
-// AdaptiRead Background Service Worker
+// adaptiread background script
 importScripts('storage.js');
 
+// set up everything when the extension is first installed
 chrome.runtime.onInstalled.addListener(async () => {
     chrome.storage.local.set({
         enabled: true,
@@ -10,16 +11,20 @@ chrome.runtime.onInstalled.addListener(async () => {
     });
 
     try {
+        // start up the database
         await self.adaptiReadStorage.init();
         console.log('AdaptiRead Initialized.');
+        // apply some decay so words get harder over time
         await applyDecay();
 
+        // right click menu option for the user
         chrome.contextMenus.create({
             id: 'highlight-with-adaptiread',
             title: 'Highlight with AdaptiRead',
             contexts: ['selection']
         });
 
+        // alarm for daily decay logic
         if (chrome.alarms) {
             chrome.alarms.create('decayAlarm', { periodInMinutes: 1440 });
         }
@@ -28,16 +33,19 @@ chrome.runtime.onInstalled.addListener(async () => {
     }
 });
 
+// handles when user clicks the right click menu
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     if (info.menuItemId === 'highlight-with-adaptiread' && info.selectionText) {
         const word = info.selectionText.trim().split(/\s+/)[0].toLowerCase();
         if (word && tab?.id) {
+            // log the interaction and tell content script to highlight it
             await handleInteraction(word, 'hover');
             chrome.tabs.sendMessage(tab.id, { type: 'HIGHLIGHT_WORD', word });
         }
     }
 });
 
+// make sure db is ready and decay is applied when browser starts
 chrome.runtime.onStartup.addListener(async () => {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
@@ -47,6 +55,7 @@ chrome.runtime.onStartup.addListener(async () => {
     }
 });
 
+// how much each action affects the student proficiency
 const INTERACTION_IMPACT = {
     'hover': { proficiency: 0.05, stability: 0 },
     'simplify_click': { proficiency: -0.10, stability: -0.05 },
@@ -57,15 +66,18 @@ const INTERACTION_IMPACT = {
     'practice_viewed': { proficiency: 0.10, stability: 0.15 }
 };
 
+// api urls for openai and proxy
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 const PROXY_URL = 'http://localhost:3000/simplify';
 const EXAMPLES_PROXY_URL = 'http://localhost:3000/examples';
 const CHAT_PROXY_URL = 'http://localhost:3000/chat';
 const DICTIONARY_API_URL = 'https://api.dictionaryapi.dev/api/v2/entries/en/';
 
+// helper function to talk to openai or the proxy if no key
 async function callOpenAI(payload) {
     const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
     if (openaiKey) {
+        // use the user's key if they have one
         const response = await fetch(OPENAI_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
@@ -78,6 +90,7 @@ async function callOpenAI(payload) {
         const data = await response.json();
         return data.choices[0].message.content;
     } else {
+        // fallback to proxy server if no key provided
         const response = await fetch(CHAT_PROXY_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -89,8 +102,9 @@ async function callOpenAI(payload) {
     }
 }
 
+// listen for messages from popup or content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // Robust message handling with single sendResponse point
+    // big list of all things we can do
     const handlers = {
         'ANALYZE_PAGE': (msg) => processBatch(msg.url, msg.sentences),
         'PROCESS_BATCH': (msg) => processBatch(msg.url, msg.sentences),
@@ -98,7 +112,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         'GET_DEFINITION': (msg) => fetchDefinition(msg.word),
         'GET_VOCAB_STATS': () => getVocabStats(),
         'UPDATE_PROFICIENCY': (msg) => self.adaptiReadStorage.updateWordProficiency(msg.word, msg.delta, msg.stabilityDelta, msg.interactionType),
-        'LOG_INTERACTION': (msg) => handleInteraction(msg.word, msg.interaction),
+        'LOG_INTERACTION': (msg) => handleInteraction(word, msg.interaction),
         'GET_LEARNING_INSIGHTS': () => getLearningInsights(),
         'GET_PRACTICE_CONTENT': (msg) => getPracticeContent(msg.word, msg.forceRefresh),
         'GET_DAILY_QUIZ': () => getDailyQuiz(),
@@ -123,6 +137,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     };
 
     if (handlers[message.type]) {
+        // run the handler and send back the result
         handlers[message.type](message)
             .then(res => sendResponse(res))
             .catch(err => {
@@ -133,6 +148,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 });
 
+// clean up sentence text for hashing
 function normalizeSentence(text) {
     if (!text) return '';
     return text.toLowerCase()
@@ -141,6 +157,7 @@ function normalizeSentence(text) {
         .trim();
 }
 
+// create a unique id for a sentence to cache results
 async function hashSentence(sentence) {
     const CACHE_VERSION = 'v2_lenient';
     const encoder = new TextEncoder();
@@ -150,11 +167,13 @@ async function hashSentence(sentence) {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// big function to find all complex words on a page
 async function processBatch(url, sentences) {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
 
         const CACHE_VERSION = 'v2_lenient';
+        // check if we already scanned this page before
         const cachedArticle = await self.adaptiReadStorage.getArticle(url);
         if (cachedArticle && cachedArticle.version === CACHE_VERSION) {
             return cachedArticle.replacements;
@@ -171,6 +190,7 @@ async function processBatch(url, sentences) {
             const cachedContext = await self.adaptiReadStorage.getContext(hash);
 
             if (cachedContext) {
+                // use cached words if we have them
                 allIdentifications[original] = cachedContext.replacements;
             } else {
                 sentencesToAnalyze.push({ original, normalized, hash });
@@ -182,10 +202,11 @@ async function processBatch(url, sentences) {
             return allIdentifications;
         }
 
-        // Cache mastered words to reduce transactions
+        // keep track of mastered words so we don't bother highlighting them
         const allWords = await self.adaptiReadStorage.getAllWords();
         const masteredWords = new Set(allWords.filter(w => w.proficiency > 0.8).map(w => w.word));
 
+        // split big pages into chunks so ai doesn't get overwhelmed
         const MAX_CHARS = 5000;
         const chunks = [];
         let currentChunk = [];
@@ -204,12 +225,13 @@ async function processBatch(url, sentences) {
 
         const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
 
-        // Process sequentially to avoid DB transaction overlaps
+        // call ai for each chunk
         for (const chunk of chunks) {
             const chunkTexts = chunk.map(item => item.normalized);
             try {
                 let response;
                 if (openaiKey) {
+                    // direct call to openai
                     response = await fetch(OPENAI_API_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
@@ -223,6 +245,7 @@ async function processBatch(url, sentences) {
                         })
                     });
                 } else {
+                    // or via proxy
                     response = await fetch(PROXY_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -236,7 +259,7 @@ async function processBatch(url, sentences) {
                 const result = openaiKey ? JSON.parse(data.choices[0].message.content) : data;
                 let words = result.complex_words || (Array.isArray(result) ? result : []);
 
-                // Filter mastered and common/short words
+                // only keep words that are long enough and not mastered
                 const filtered = words.filter(w =>
                     !masteredWords.has(w.toLowerCase()) &&
                     /^[\w\-\']{3,}$/.test(w)
@@ -255,6 +278,7 @@ async function processBatch(url, sentences) {
             }
         }
 
+        // save the final results for this url
         await self.adaptiReadStorage.saveArticle(url, allIdentifications, CACHE_VERSION);
         return allIdentifications;
 
@@ -264,6 +288,7 @@ async function processBatch(url, sentences) {
     }
 }
 
+// look up word definition using free dictionary api
 async function fetchDefinition(word) {
     try {
         const encoded = encodeURIComponent(word.toLowerCase());
@@ -287,6 +312,7 @@ async function fetchDefinition(word) {
     }
 }
 
+// update word score when user does something
 async function handleInteraction(word, type) {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
@@ -298,6 +324,7 @@ async function handleInteraction(word, type) {
     }
 }
 
+// generate the big ai coaching report
 async function getLearningInsights() {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
@@ -305,13 +332,13 @@ async function getLearningInsights() {
         const misunderstood = await self.adaptiReadStorage.getAllMisunderstoodSentences();
         const vaultedWords = new Set(misunderstood.map(m => m.word.toLowerCase()));
 
-        // Inclusive list: everything hovered (discovered) OR everything in vault
+        // get everything the student is working on
         const discoveredWords = allWords.filter(w => w.isDiscovered).map(w => w.word.toLowerCase());
         const combinedWordSet = new Set([...discoveredWords, ...vaultedWords]);
 
         const focalWords = Array.from(combinedWordSet).sort();
 
-        // Determine the "struggling" subset for AI summary prioritization
+        // pick words to complain about in the report
         const struggling = allWords
             .filter(w => combinedWordSet.has(w.word.toLowerCase()) && w.proficiency < 0.9)
             .sort((a, b) => b.contextCount - a.contextCount)
@@ -330,12 +357,13 @@ async function getLearningInsights() {
 
         const { coachLanguage = 'English' } = await chrome.storage.local.get(['coachLanguage']);
 
-        // Always attempt an AI report if there are any focal words
+        // get a summary of what they are struggling with
         const targetWords = struggling.length > 0 ? struggling : allWords.filter(w => combinedWordSet.has(w.word.toLowerCase())).slice(0, 10);
         const wordSummary = targetWords.map(w => `${w.word} (Seen ${w.contextCount}x, Proficiency: ${(w.proficiency * 100).toFixed(0)}%)`).join(', ');
         const vaultedContext = misunderstood.slice(0, 5).map(m => `"${m.sentence}" (Trouble with: ${m.word})`).join('\n');
 
         try {
+            // tell ai to be a strict coach but in the right language
             const prompt = `Analyze this student's progress and provide an ELITE ESL coaching report.
             
             STRICT LANGUAGE RULE: Provide the ENTIRE response (including headers, categories, advice, and tips) strictly in ${coachLanguage}.
@@ -378,6 +406,7 @@ async function getLearningInsights() {
     }
 }
 
+// make scores go down if student hasn't practiced in a while
 async function applyDecay(manualDays = 0) {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
@@ -396,6 +425,7 @@ async function applyDecay(manualDays = 0) {
                     const actualDiff = (now - wordData.lastInteraction) / dayMs;
                     const dayDiff = actualDiff + manualDays;
 
+                    // if it's been more than a day, start forgetting
                     if (dayDiff > 1) {
                         wordData.proficiency = Math.max(0.01, wordData.proficiency - (wordData.decayRate * Math.log1p(dayDiff)));
                         store.put(wordData);
@@ -411,6 +441,7 @@ async function applyDecay(manualDays = 0) {
     }
 }
 
+// get quick stats for the home tab
 async function getVocabStats() {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
@@ -425,7 +456,9 @@ async function getVocabStats() {
     }
 }
 
+// get sentences so the student can practice a specific word
 async function getPracticeContent(word, forceRefresh = false) {
+    // some default sentences if ai fails
     const fallback = {
         quiz: null,
         sentences: [
@@ -443,6 +476,7 @@ async function getPracticeContent(word, forceRefresh = false) {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
 
         if (!forceRefresh) {
+            // check if we already have some cached
             const cached = await self.adaptiReadStorage.getPracticeContent(word);
             if (cached && cached.sentences && cached.sentences.length >= 6) return cached;
         }
@@ -453,6 +487,7 @@ async function getPracticeContent(word, forceRefresh = false) {
 
         let content;
         if (openaiKey) {
+            // ask ai to write 6 unique sentences
             const prompt = `As an expert linguist, create exactly 6 DIVERSE and UNIQUE high-quality organic sentences for the word "${word}" ${contextInfo}. 
 Ensure these sentences are different from common dictionary examples. [Seed: ${Date.now()}]
 Return a JSON object:
@@ -487,7 +522,7 @@ STRICT RULES:
                 content = JSON.parse(data.choices[0].message.content);
             }
         } else {
-            // FALLBACK TO LOCAL PROXY (Using .env Key)
+            // ask local proxy for help
             const response = await fetch(EXAMPLES_PROXY_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -500,7 +535,7 @@ STRICT RULES:
 
         if (!content || !content.sentences) return fallback;
 
-        // Deduplicate and Strict Validation
+        // make sure the sentences actually have the word in them
         const uniqueSentences = Array.from(new Set(content.sentences.map(s => s.trim())));
         const validatedSentences = uniqueSentences.filter(s => s.toLowerCase().includes(word.toLowerCase()));
 
@@ -515,10 +550,12 @@ STRICT RULES:
     }
 }
 
+// get some words for the student to review today
 async function getDailyQuiz() {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
         const allWords = await self.adaptiReadStorage.getAllWords();
+        // pick words with low scores
         const dueWords = allWords
             .filter(w => w.isDiscovered && w.proficiency < 0.9)
             .sort((a, b) => a.proficiency - b.proficiency)
@@ -532,6 +569,7 @@ async function getDailyQuiz() {
     }
 }
 
+// find a wikipedia page to read based on what student is struggling with
 async function getReadingRecommendations() {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
@@ -545,6 +583,7 @@ async function getReadingRecommendations() {
         if (struggling.length > 0) {
             const wordsStr = struggling.map(w => w.word).join(', ');
             if (openaiKey) {
+                // ask ai for a good topic
                 const prompt = `Based on: ${wordsStr}, suggest ONE specific Wikipedia topic. Return JSON: { "url": "...", "reason": "..." }`;
                 try {
                     const response = await fetch(OPENAI_API_URL, {
@@ -573,6 +612,7 @@ async function getReadingRecommendations() {
     }
 }
 
+// just for testing stuff
 async function debugMockData(specificWord) {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
@@ -605,6 +645,7 @@ async function debugMockData(specificWord) {
     }
 }
 
+// talk to the friendly ai tutor
 async function chatWithTutor(text) {
     try {
         if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
@@ -634,6 +675,8 @@ async function chatWithTutor(text) {
         return { text: "I'm having a little trouble thinking right now. Please check your connection." };
     }
 }
+
+// make a hard sentence easier to read
 async function simplifySentence(text) {
     try {
         const content = await callOpenAI({

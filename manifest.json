@@ -1,4 +1,5 @@
 {
+  "_comment": "the manifest is like the id card for our extension. it tells chrome what permissions we need and where our files are.",
   "manifest_version": 3,
   "name": "AdaptiRead",
   "version": "1.0",

@@ -1,3 +1,5 @@
+// content script for adaptiread
+// this runs on every page the student visits
 let globalLoadingIndicator = null;
 let hasScannedOnThisPage = false;
 let isScanningActive = false;
@@ -7,6 +9,7 @@ let scanTimeout = null;
 let processedNodes = new WeakSet();
 
 // --- UTILS ---
+// helps clean up text before sending to ai or hashing
 function normalizeSentence(text) {
     if (!text) return '';
     return text.toLowerCase()
@@ -15,9 +18,11 @@ function normalizeSentence(text) {
         .trim();
 }
 
+// safer way to send messages to background script
 function safeSendMessage(message) {
     if (!chrome.runtime?.id) return Promise.resolve(null);
     return chrome.runtime.sendMessage(message).catch(err => {
+        // ignore errors about the extension being updated or closed
         if (!err.message.includes('Extension context invalidated')) {
             console.error('AdaptiRead Error:', err);
         }
@@ -25,6 +30,7 @@ function safeSendMessage(message) {
     });
 }
 
+// inject the tooltip styles into the page head
 function injectStyles() {
     if (!document.head || document.getElementById('adaptiread-styles')) return;
     const style = document.createElement('style');
@@ -34,6 +40,7 @@ function injectStyles() {
 }
 
 // --- UI COMPONENTS ---
+// show a little popup asking if they want to simplify the page
 function showAskToSimplifyPopup() {
     if (hasScannedOnThisPage || document.getElementById('adaptiread-ask-popup')) return;
 
@@ -60,9 +67,11 @@ function showAskToSimplifyPopup() {
         popup.remove();
     });
 
+    // remove after some time if they don't click
     setTimeout(() => { if (popup.parentElement) popup.remove(); }, 15000);
 }
 
+// show a loading spinner while ai is thinking
 function showLoadingIndicator() {
     if (globalLoadingIndicator) return;
     globalLoadingIndicator = document.createElement('div');
@@ -74,6 +83,7 @@ function showLoadingIndicator() {
     document.body.appendChild(globalLoadingIndicator);
 }
 
+// hide the spinner when done
 function hideLoadingIndicator() {
     if (globalLoadingIndicator) {
         globalLoadingIndicator.remove();
@@ -82,6 +92,7 @@ function hideLoadingIndicator() {
 }
 
 // --- CORE LOGIC ---
+// kickoff function for the extension logic
 function startAdaptiRead(force = false) {
     if (isScanningActive && !force) return;
     if (force) {
@@ -95,38 +106,44 @@ function startAdaptiRead(force = false) {
     if (existingPopup) existingPopup.remove();
 
     injectStyles();
-    scanAndProcess(true); // Initial LOUD scan
+    scanAndProcess(true); // first full scan
     setupObserver();
 }
 
 // --- INIT ---
+// listen for messages from background or popup
 console.log('AdaptiRead: Content script loaded');
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'START_SIMPLIFY') {
-        startAdaptiRead(true); // Force re-scan
+        startAdaptiRead(true); // force redo it
         sendResponse({ success: true });
     } else if (msg.type === 'HIGHLIGHT_WORD') {
+        // highlight a specific word (from right click)
         highlightSpecificWord(msg.word);
         sendResponse({ success: true });
     }
 });
 
+// find and highlight one specific word in the text nodes
 async function highlightSpecificWord(word) {
     if (!word || !chrome.runtime?.id) return;
     const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
 
+    // walk through all text on the page
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
     const nodesToProcess = [];
     let node;
     while (node = walker.nextNode()) {
         const parent = node.parentElement;
         if (!parent || parent.closest('.adaptiread-highlight, .adaptiread-tooltip, .adaptiread-ask-popup')) continue;
+        // avoid code and scripts
         const forbidden = ['SCRIPT', 'STYLE', 'TEXTAREA', 'NOSCRIPT', 'CODE', 'PRE', 'INPUT', 'SELECT'];
         if (forbidden.includes(parent.tagName)) continue;
         if (regex.test(node.nodeValue)) nodesToProcess.push(node);
     }
 
+    // replace text with highlight spans
     nodesToProcess.forEach(textNode => {
         let displaySegments = [{ type: 'text', content: textNode.nodeValue }];
         let changed = false;
@@ -165,13 +182,14 @@ async function highlightSpecificWord(word) {
     attachIgnoreObserverToHighlights();
 }
 
+// watch for page changes so we can highlight new text
 function setupObserver() {
     const observer = new MutationObserver((mutations) => {
         if (!chrome.runtime?.id || isApplyingHighlights || !isScanningActive) return;
 
         let shouldScan = false;
         for (const mutation of mutations) {
-            // Ignore if mutation is inside our UI elements
+            // ignore our own popups
             if (mutation.target.closest?.('.adaptiread-tooltip, .adaptiread-ask-popup, .adaptiread-global-loading')) continue;
 
             const hasNewContent = Array.from(mutation.addedNodes).some(n => {
@@ -191,13 +209,15 @@ function setupObserver() {
             }
         }
         if (shouldScan) {
+            // debounce scans so we don't lag
             if (scanTimeout) clearTimeout(scanTimeout);
-            scanTimeout = setTimeout(() => scanAndProcess(false), 1000); // Silent re-scan
+            scanTimeout = setTimeout(() => scanAndProcess(false), 1000);
         }
     });
     observer.observe(document.body, { childList: true, subtree: true });
 }
 
+// main process for scanning text and applying highlights
 async function scanAndProcess(isInitial = false) {
     if (isApplyingHighlights || !chrome.runtime?.id) return;
 
@@ -205,6 +225,7 @@ async function scanAndProcess(isInitial = false) {
     let node;
     const blockMap = new Map();
 
+    // collect all the text blocks first
     while (node = walker.nextNode()) {
         const parent = node.parentElement;
         if (!parent || processedNodes.has(node)) continue;
@@ -214,6 +235,7 @@ async function scanAndProcess(isInitial = false) {
         const forbidden = ['SCRIPT', 'STYLE', 'TEXTAREA', 'NOSCRIPT', 'CODE', 'PRE', 'INPUT', 'SELECT'];
         if (forbidden.includes(tagName)) continue;
 
+        // find the closest block element like a paragraph or div
         const blockParent = parent.closest('p, div, h1, h2, h3, h4, h5, h6, li, td, th, blockquote, dt, dd, section, article, header, footer, main, aside') || parent;
         if (!blockMap.has(blockParent)) blockMap.set(blockParent, []);
         blockMap.get(blockParent).push(node);
@@ -228,6 +250,7 @@ async function scanAndProcess(isInitial = false) {
         const textToAnalyzeSet = new Set();
         const blockToTextSegments = new Map();
 
+        // prep text for analysis
         blockMap.forEach((nodes, block) => {
             let fullText = block.textContent.trim().replace(/\s+/g, ' ');
             if (fullText.length === 0) return;
@@ -242,12 +265,14 @@ async function scanAndProcess(isInitial = false) {
         const uniqueTexts = Array.from(textToAnalyzeSet);
         if (uniqueTexts.length === 0) return;
 
+        // send the text to background to check with ai
         const analysis = await safeSendMessage({ type: 'ANALYZE_PAGE', url: window.location.href, sentences: uniqueTexts });
         if (!analysis) return;
 
         const normalizedAnalysis = {};
         Object.keys(analysis).forEach(k => normalizedAnalysis[normalizeSentence(k)] = analysis[k]);
 
+        // go back and apply highlights based on results
         blockMap.forEach((nodes, block) => {
             const segments = blockToTextSegments.get(block);
             if (!segments) return;
@@ -273,6 +298,7 @@ async function scanAndProcess(isInitial = false) {
                 let displaySegments = [{ type: 'text', content: textNode.nodeValue }];
                 let changed = false;
 
+                // check for each complex word in the segment
                 sortedWords.forEach(word => {
                     const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                     const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
@@ -292,6 +318,7 @@ async function scanAndProcess(isInitial = false) {
                     displaySegments = nextDisplaySegments;
                 });
 
+                // rebuild the dom with span elements
                 if (changed) {
                     const fragment = document.createDocumentFragment();
                     displaySegments.forEach(seg => {
@@ -321,10 +348,13 @@ async function scanAndProcess(isInitial = false) {
 }
 
 // --- INTERACTION LOGIC ---
+// --- INTERACTION LOGIC ---
+// managing tooltip states
 let activeTooltip = null;
 let tooltipHideTimeout = null;
 let hoverTimer = null;
 
+// detect when human hovers over a highlighted word
 document.addEventListener('mouseover', async (e) => {
     const isTooltip = e.target.closest('.adaptiread-tooltip');
     const isHighlight = e.target.closest('.adaptiread-highlight');
@@ -342,16 +372,17 @@ document.addEventListener('mouseover', async (e) => {
 
     const word = target.getAttribute('data-word');
 
-    // Show tooltip immediately
+    // pop up the tooltip
     showTooltip(target, word);
 
-    // 500ms delay for logging interaction (discovery)
+    // wait half a sec before counting it as a "discovery" hover
     if (hoverTimer) clearTimeout(hoverTimer);
     hoverTimer = setTimeout(() => {
         safeSendMessage({ type: 'LOG_INTERACTION', word, interaction: 'hover' });
     }, 500);
 });
 
+// clean up when mouse leaves
 document.addEventListener('mouseout', (e) => {
     if (hoverTimer) {
         clearTimeout(hoverTimer);
@@ -365,6 +396,7 @@ document.addEventListener('mouseout', (e) => {
     }
 });
 
+// fetch and show word definition in a floating bubble
 async function showTooltip(target, word) {
     if (activeTooltip) hideTooltip();
     activeTooltip = document.createElement('div');
@@ -373,6 +405,7 @@ async function showTooltip(target, word) {
     activeTooltip.innerHTML = `<div class="adaptiread-loading">Loading definition...</div>`;
     document.body.appendChild(activeTooltip);
 
+    // work out where to put the bubble
     const rect = target.getBoundingClientRect();
     const tooltipWidth = 280;
     const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
@@ -390,11 +423,12 @@ async function showTooltip(target, word) {
 
     requestAnimationFrame(() => { if (activeTooltip) activeTooltip.classList.add('visible'); });
 
+    // get data from background script
     const data = await safeSendMessage({ type: 'GET_DEFINITION', word });
     if (!activeTooltip || activeTooltip._target !== target) return;
 
     if (data) {
-        // Mark as discovered because the user has 'seen' the definition
+        // they definitely saw the word now
         safeSendMessage({ type: 'LOG_INTERACTION', word, interaction: 'hover' });
         if (hoverTimer) {
             clearTimeout(hoverTimer);
@@ -411,6 +445,8 @@ async function showTooltip(target, word) {
                 <button class="btn-known" id="adaptiread-view-examples" style="flex: 1; background: #374151;">Examples</button>
             </div>
         `;
+
+        // handle marking word as already known
         activeTooltip.querySelector('#adaptiread-mark-known').onclick = (e) => {
             e.stopPropagation();
             safeSendMessage({ type: 'LOG_INTERACTION', word: data.word, interaction: 'click' });
@@ -420,6 +456,7 @@ async function showTooltip(target, word) {
             hideTooltip();
         };
 
+        // switch to example sentences view
         activeTooltip.querySelector('#adaptiread-view-examples').onclick = (e) => {
             e.stopPropagation();
             safeSendMessage({ type: 'LOG_INTERACTION', word: data.word, interaction: 'click' });
@@ -430,6 +467,7 @@ async function showTooltip(target, word) {
     }
 }
 
+// show example sentences inside the same tooltip bubble
 async function showInPageExamples(word, tooltip, wordData, target, forceRefresh = false) {
     tooltip.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
@@ -464,6 +502,7 @@ async function showInPageExamples(word, tooltip, wordData, target, forceRefresh 
     let currentIndex = 0;
     const sentences = content.sentences;
 
+    // render a mini flashcard for the student to review
     function renderFlashcard() {
         if (currentIndex >= sentences.length) {
             tooltip.innerHTML = `
@@ -480,7 +519,7 @@ async function showInPageExamples(word, tooltip, wordData, target, forceRefresh 
             tooltip.querySelector('#adaptiread-close-end').onclick = () => hideTooltip();
             tooltip.querySelector('#adaptiread-gen-more').onclick = (e) => {
                 e.stopPropagation();
-                showInPageExamples(word, tooltip, wordData, target, true); // Force Refresh!
+                showInPageExamples(word, tooltip, wordData, target, true);
             };
             return;
         }
@@ -525,6 +564,7 @@ async function showInPageExamples(word, tooltip, wordData, target, forceRefresh 
     renderFlashcard();
 }
 
+// kill the tooltip bubble
 function hideTooltip() {
     if (activeTooltip) {
         const el = activeTooltip;
@@ -541,6 +581,7 @@ function hideTooltip() {
 }
 
 // --- PASSIVE TRACKING ---
+// check if human sees words by just scrolling past them
 const trackedWordsOnPage = new Set();
 const ignoreObserver = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
@@ -551,16 +592,18 @@ const ignoreObserver = new IntersectionObserver((entries) => {
                     trackedWordsOnPage.add(word);
                     safeSendMessage({ type: 'LOG_INTERACTION', word, interaction: 'context_seen' });
                 }
-            }, 3000);
+            }, 3000); // 3 seconds count as seen
         } else clearTimeout(entry.target._viewTimer);
     });
 }, { threshold: 0.5 });
 
+// hook up the observer to all highlight elements
 function attachIgnoreObserverToHighlights() {
     document.querySelectorAll('.adaptiread-highlight').forEach(el => ignoreObserver.observe(el));
 }
 
 // --- INIT ---
+// entry points for the content script
 console.log('AdaptiRead: Content script loaded');
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'START_SIMPLIFY') {
@@ -577,6 +620,7 @@ chrome.storage.local.get(['enabled'], (res) => {
     }
 });
 
+// the big bunch of css for the tooltips and highlights
 const TOOLTIP_CSS = `
     .adaptiread-highlight {
         background-color: rgba(59, 130, 246, 0.2);

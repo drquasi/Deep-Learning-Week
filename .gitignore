@@ -27,3 +27,6 @@ yarn-error.log*
 # Project specific
 tmp/
 .gemini/
+innovations.md
+methodology.md
+test_page.html

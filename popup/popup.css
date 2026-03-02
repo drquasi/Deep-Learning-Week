@@ -1,3 +1,4 @@
+/* defining all the colors for light and dark mode */
 :root {
   --bg-main: #ffffff;
   --bg-secondary: #f9fafb;
@@ -8,6 +9,7 @@
   --card-bg: #ffffff;
 }
 
+/* swapped colors when the user has dark mode on */
 @media (prefers-color-scheme: dark) {
   :root {
     --bg-main: #111827;
@@ -36,6 +38,7 @@ body {
   border-radius: 12px;
 }
 
+/* the main wrapper for everything in the popup */
 .glass-container {
   padding: 24px;
   background: var(--bg-main);
@@ -56,6 +59,7 @@ h1 {
   letter-spacing: -0.2px;
 }
 
+/* a nice border box for settings and toggles */
 .status-card {
   background: var(--card-bg);
   border: 1px solid var(--border);
@@ -64,6 +68,7 @@ h1 {
   margin-bottom: 12px;
 }
 
+/* the switch at the top to change tabs */
 .tab-bar {
   display: flex;
   background: var(--bg-secondary);
@@ -92,6 +97,7 @@ h1 {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
+/* standard ios-style toggle switches */
 .switch-container {
   display: flex;
   justify-content: space-between;
@@ -158,6 +164,7 @@ input:checked+.slider::before {
   display: block;
 }
 
+/* big bright primary buttons */
 .primary-btn {
   width: 100%;
   padding: 12px;
@@ -175,6 +182,7 @@ input:checked+.slider::before {
   opacity: 0.9;
 }
 
+/* transparent buttons with a small border */
 .glass-btn {
   background: transparent;
   border: 1px solid var(--border);
@@ -255,8 +263,7 @@ input:checked+.slider::before {
   height: 20px;
 }
 
-
-
+/* the slide-in panels for vault, debug, and practice */
 #insights-panel,
 #debug-panel,
 #practice-panel,
@@ -335,6 +342,7 @@ input:checked+.slider::before {
   color: var(--accent);
 }
 
+/* the little underscore for active sub-tabs */
 .sub-tab-btn.active::after {
   content: '';
   position: absolute;
@@ -355,7 +363,7 @@ input:checked+.slider::before {
   scrollbar-gutter: stable;
 }
 
-/* --- CUSTOM SCROLLBAR --- */
+/* custom scrollbar to match the clean design */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -373,7 +381,7 @@ input:checked+.slider::before {
   background: var(--accent);
 }
 
-/* Firefox Support */
+/* firefox scrollbar support */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
@@ -409,6 +417,7 @@ input:checked+.slider::before {
   display: none !important;
 }
 
+/* clickable options for the practice quiz */
 .quiz-option {
   width: 100%;
   padding: 12px 16px;
@@ -466,6 +475,7 @@ input:checked+.slider::before {
   font-weight: 500;
 }
 
+/* dropdown menus for selecting language */
 .glass-select {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -494,6 +504,7 @@ input:checked+.slider::before {
   position: relative;
 }
 
+/* the big beautiful ai insight card with gradients */
 #ai-insight-text {
   font-size: 0.95rem;
   line-height: 1.7;
@@ -540,6 +551,7 @@ input:checked+.slider::before {
   list-style: none;
 }
 
+/* simple loading spinner */
 .spinner {
   width: 20px;
   height: 20px;
@@ -579,6 +591,7 @@ input:checked+.slider::before {
   border-bottom: 1px solid var(--border);
 }
 
+/* custom tooltips used in the ai coach advice */
 .insight-tooltip-target {
   border-bottom: 1px dashed var(--accent);
   cursor: help;

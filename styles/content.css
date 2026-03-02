@@ -1,4 +1,5 @@
-/* AdaptiRead Content Styles - Clean & Professional */
+/* adaptiread content styles - clean & professional */
+/* this wrapper makes sure our highlights don't break the page layout */
 .adaptiread-wrapper {
     display: inline-flex;
     vertical-align: baseline;
@@ -9,6 +10,7 @@
     line-height: normal;
 }
 
+/* the blue bubble for when a word is simplified inline */
 .adaptiread-simplified {
     background-color: #3b82f6 !important;
     color: white !important;
@@ -21,7 +23,7 @@
     opacity: 1;
 }
 
-/* Light background tint for highlights */
+/* light background tint for when we find a complex word */
 .adaptiread-highlight {
     background-color: rgba(59, 130, 246, 0.2);
     border-bottom: 2px solid #3b82f6;
@@ -35,6 +37,7 @@
     background-color: rgba(59, 130, 246, 0.2);
 }
 
+/* if the student knows the word well, we make the highlight disappear slowly */
 .adaptiread-highlight.mastered {
     background-color: transparent !important;
     border-bottom: none !important;

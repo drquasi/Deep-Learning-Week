@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', async () => {
+    // getting all the buttons and text boxes from the html
     const masterToggle = document.getElementById('master-toggle');
     const autoSimplifyToggle = document.getElementById('auto-simplify-toggle');
     const statsSeenEl = document.getElementById('stats-seen');
@@ -6,7 +7,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const settingsToggle = document.getElementById('settings-toggle');
     const settingsPanel = document.getElementById('settings-panel');
 
-    // Tab Elements
+    // tabs for switching between home and lessons
     const tabHome = document.getElementById('tab-home');
     const tabLessons = document.getElementById('tab-lessons');
     const homeView = document.getElementById('home-view');
@@ -17,7 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const aiInsightText = document.getElementById('ai-insight-text');
     const wordList = document.getElementById('word-list');
 
-    // Debug Elements
+    // debug stuff for testing the database
     const openDebug = document.getElementById('open-debug');
     const closeDebug = document.getElementById('close-debug');
     const debugPanel = document.getElementById('debug-panel');
@@ -25,13 +26,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const resetDbBtn = document.getElementById('reset-db');
     const forceDecayBtn = document.getElementById('force-decay');
 
-    // Load saved settings & stats
+    // load up the student's settings like api key and toggle states
     const settings = await chrome.storage.local.get(['enabled', 'autoSimplify', 'openaiKey']);
     masterToggle.checked = settings.enabled !== false;
     autoSimplifyToggle.checked = settings.autoSimplify === true;
     if (settings.openaiKey) document.getElementById('openai-key').value = settings.openaiKey;
 
-    // Fetch Real Vocabulary Stats
+    // fetch the latest vocabulary stats to show on the dashboard
     async function updateStats() {
         chrome.runtime.sendMessage({ type: 'GET_VOCAB_STATS' }, (stats) => {
             if (stats) {
@@ -42,16 +43,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     updateStats();
 
+    // this converts the ai response into nice html with bold text and tooltips
     function renderInsightWithTooltips(text, container) {
         if (!text) return;
 
-        // Handle Markdown-lite
+        // handle markdown-lite
         let html = text
             .replace(/^### (.*$)/gim, '<h3>$1</h3>')
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             .replace(/\n\n/g, '</p><p>');
 
-        // Handle Tooltips
+        // handle special tooltips like [[word|tip]]
         const tooltipRegex = /\[\[(.*?)\|(.*?)\]\]/g;
         html = html.replace(tooltipRegex, (match, word, tip) => {
             return `<span class="insight-tooltip-target" data-tip="${tip}">${word}</span>`;
@@ -69,7 +71,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
     }
 
-    // Event Listeners
+    // open/close settings panel
     settingsToggle.addEventListener('click', () => settingsPanel.classList.toggle('visible'));
 
     const languageSelect = document.getElementById('coach-language-select');
@@ -84,6 +86,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
+    // save the api key when they click save
     document.getElementById('save-key').addEventListener('click', () => {
         const key = document.getElementById('openai-key').value.trim();
         chrome.storage.local.set({ openaiKey: key }, () => {
@@ -114,12 +117,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     let currentQuiz = [];
     let currentQuizIdx = 0;
 
-
     closePractice.addEventListener('click', () => {
         practicePanel.classList.add('hidden');
         updateStats();
     });
 
+    // shows a mini flashcard when they want to practice a word
     function showQuizItem(item, isRefresh = false) {
         if (!item) {
             practiceWordTitle.textContent = "Done!";
@@ -131,7 +134,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        // Add Generate More to the end of a single word review
+        // shown when they finish all examples for a word
         function showDoneState() {
             const hasNext = currentQuizIdx < currentQuiz.length - 1;
             practiceDisplay.innerHTML = `
@@ -142,6 +145,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <button id="pop-done-action" class="action-btn secondary-btn" style="margin-top: 8px;">${hasNext ? 'Next Word' : 'Close'}</button>
                 </div>
             `;
+            // let them ask for more examples if they want a challenge
             practiceDisplay.querySelector('#pop-done-gen-more').onclick = () => {
                 practiceDisplay.classList.add('hidden');
                 practiceLoading.classList.remove('hidden');
@@ -168,6 +172,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         let sentenceIndex = 0;
         const totalSentences = item.sentences || [];
 
+        // render the actual card with the sentence
         function renderCard() {
             if (sentenceIndex >= totalSentences.length || (sentenceIndex >= 3 && totalSentences.length <= 3)) {
                 if (totalSentences.length > 3 && sentenceIndex === 3) {
@@ -219,6 +224,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             };
         }
 
+        // if they have more examples, ask if they want to see them
         function renderExtraBatchPrompt() {
             practiceSentences.innerHTML = `
                 <li style="list-style: none; margin: 0; padding: 12px; text-align: center; font-size: 13px; color: var(--text-dim);">You've seen 6 examples for "${item.word}".</li>
@@ -260,6 +266,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderCard();
     }
 
+    // handle when the student answers a quiz question
     function handleQuizAnswer(btn, selected, correct, word) {
         const isCorrect = selected === correct;
         Array.from(quizOptions.children).forEach(b => {
@@ -290,6 +297,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         quizFeedback.appendChild(nextBtn);
     }
 
+    // start the simplify process on the current tab
     const simplifyPageBtn = document.getElementById('simplify-page-btn');
     if (simplifyPageBtn) {
         simplifyPageBtn.addEventListener('click', async () => {
@@ -310,6 +318,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let cachedInsight = null;
 
+    // handle switching between top-level tabs
     tabHome.addEventListener('click', () => {
         tabHome.classList.add('active');
         tabLessons.classList.remove('active');
@@ -325,7 +334,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         loadLessonsLearned(false);
     });
 
-    // Sub-tab logic for Lessons Learned
+    // sub-tab logic for lessons learned (ai coach vs vocab list)
     const subTabCoach = document.getElementById('sub-tab-coach');
     const subTabVocab = document.getElementById('sub-tab-vocab');
     const coachSubView = document.getElementById('coach-sub-view');
@@ -347,8 +356,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // load the lessons summary and the word list
     async function loadLessonsLearned(forceRefresh = false) {
-        // Only refresh AI summary if forced or not cached
+        // only refresh ai summary if forced or not cached
         const shouldRefreshAI = forceRefresh || !cachedInsight;
 
         if (shouldRefreshAI) {
@@ -357,11 +367,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
-        const apiKeyWarning = document.getElementById('api-key-warning');
+        const apiKeyWarning = document.getElementById(' api-key-warning');
         if (apiKeyWarning) {
             apiKeyWarning.classList.toggle('hidden', !!openaiKey);
         }
 
+        // ask background script for the latest insights
         chrome.runtime.sendMessage({ type: 'GET_LEARNING_INSIGHTS' }, (data) => {
             if (shouldRefreshAI) {
                 insightsLoading.classList.add('hidden');
@@ -378,6 +389,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     renderInsightWithTooltips(cachedInsight, aiInsightText);
                 }
 
+                // list out all the words the student is currently focusing on
                 if (data.words && data.words.length > 0) {
                     lessonsEmptyMsg.classList.add('hidden');
                     wordList.innerHTML = '';
@@ -407,10 +419,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                             </div>
                         `;
 
+                        // wikipedia shortcut
                         li.querySelector('.wiki-word-btn').onclick = () => {
                             window.open(`https://simple.wikipedia.org/w/index.php?search=${encodeURIComponent(word)}`, '_blank');
                         };
 
+                        // open the practice panel with examples
                         li.querySelector('.examples-word-btn').onclick = () => {
                             practiceWordTitle.textContent = `Examples: ${word}`;
                             practiceDisplay.classList.add('hidden');
@@ -427,6 +441,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                             };
                         }
 
+                        // let them remove words they don't want to track anymore
                         li.querySelector('.delete-word-btn').onclick = () => {
                             if (confirm(`Delete "${word}" from your learning list?`)) {
                                 chrome.runtime.sendMessage({ type: 'DELETE_WORD', word }, (res) => {
@@ -452,6 +467,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // --- VAULT DETAIL VIEW ---
+    // this section shows the specific sentences the student struggled with
     const vaultDetailPanel = document.getElementById('vault-detail-panel');
     const vaultWordTitle = document.getElementById('vault-word-title');
     const vaultSentenceList = document.getElementById('vault-sentence-list');
@@ -468,6 +484,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         vaultDetailPanel.classList.remove('hidden');
 
         let sentences = predefinedSentences;
+        // if we don't have the sentences already, fetch them from storage
         if (!sentences) {
             const allSentences = await new Promise(resolve =>
                 chrome.runtime.sendMessage({ type: 'GET_MISUNDERSTOOD_SENTENCES' }, resolve)
@@ -481,6 +498,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
+        // list out each sentence with a button to delete it
         sentences.sort((a, b) => b.timestamp - a.timestamp).forEach(item => {
             const li = document.createElement('li');
             li.className = 'vault-sentence-item';
@@ -494,6 +512,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 </button>
             `;
 
+            // if they click delete, it means they "got it" and it's removed from the list
             li.querySelector('.delete-vault-btn').onclick = () => {
                 chrome.runtime.sendMessage({ type: 'DELETE_MISUNDERSTOOD_SENTENCE', id: item.id }, (res) => {
                     if (res && res.success) {
@@ -513,7 +532,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     closeVaultDetail.onclick = () => vaultDetailPanel.classList.add('hidden');
 
-    // Debug Logic
+    // debug logic: this stuff is just for the devs to test things
     openDebug.addEventListener('click', () => {
         debugPanel.classList.remove('hidden');
         refreshDebugTable();
@@ -521,6 +540,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     closeDebug.addEventListener('click', () => debugPanel.classList.add('hidden'));
 
+    // button to quickly see how the ai insights look
     document.getElementById('debug-mock-ai').onclick = () => {
         const mockInsight = `Based on your recent activity, your main weakness lies in [[nuanced academic verbs|Words like 'mitigate' or 'exacerbate' that describe changes]] and [[technical transitions|Words that connect complex ideas]]. 
         
@@ -528,12 +548,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         Pro Tip: Pay attention to [[collocations|Words that naturally go together]] like 'significantly mitigate'.`;
 
-        tabLessons.click(); // Switch to lessons tab
+        tabLessons.click(); // switch to lessons tab
         setTimeout(() => {
             renderInsightWithTooltips(mockInsight, aiInsightText);
         }, 100);
     };
 
+    // shows the raw database table for inspection
     async function refreshDebugTable() {
         chrome.runtime.sendMessage({ type: 'DEBUG_GET_ALL_WORDS' }, (words) => {
             vocabBody.innerHTML = '';
@@ -563,6 +584,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // big red button that wipes everything!!!!!!!
     if (resetDbBtn) {
         resetDbBtn.addEventListener('click', () => {
             if (confirm('Are you sure you want to reset ALL learning data? This will clear EVERYTHING.')) {
@@ -576,6 +598,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // simulates time passing so we can test the forgetting curve
     if (forceDecayBtn) {
         forceDecayBtn.addEventListener('click', () => {
             chrome.runtime.sendMessage({ type: 'DEBUG_FORCE_DECAY', days: 7 }, (res) => {
@@ -584,6 +607,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // fills the database with sample words to test the ui
     const debugMockDataBtn = document.getElementById('debug-mock-data');
     if (debugMockDataBtn) {
         debugMockDataBtn.addEventListener('click', () => {

@@ -1,10 +1,9 @@
-/**
- * AdaptiRead Storage Module
- * Handles IndexedDB operations for the Proficiency Vector and Interaction History.
- */
+// adaptiread storage module
+// this uses indexeddb to save the student's progress and words they've seen
+// it's like a mini database inside the browser
 
 const DB_NAME = 'AdaptiReadDB';
-const DB_VERSION = 3; // Incremented to clear legacy replacements data
+const DB_VERSION = 3; // incremented to clear legacy replacements data
 const STORE_VOCAB = 'vocabulary';
 const STORE_INTERACTIONS = 'interactions';
 const STORE_ARTICLES = 'articles';
@@ -17,6 +16,7 @@ class AdaptiReadStorage {
         this.db = null;
     }
 
+    // open the database and setup the tables (object stores)
     async init() {
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -24,33 +24,33 @@ class AdaptiReadStorage {
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
 
-                // Vocabulary Store: { word, proficiency, lastInteraction, decayRate, contextTags }
+                // vocabulary store: where we keep the "proficiency vector" for each word
                 if (!db.objectStoreNames.contains(STORE_VOCAB)) {
                     db.createObjectStore(STORE_VOCAB, { keyPath: 'word' });
                 }
 
-                // Interaction Store: { id, word, type, timestamp, context }
+                // interaction store: logs every time a student hovers or clicks a word
                 if (!db.objectStoreNames.contains(STORE_INTERACTIONS)) {
                     const interactionStore = db.createObjectStore(STORE_INTERACTIONS, { keyPath: 'id', autoIncrement: true });
                     interactionStore.createIndex('word', 'word', { unique: false });
                 }
 
-                // Article Cache Store: { url, replacements, timestamp }
+                // article cache store: remembers which words were highlighted on specific urls
                 if (!db.objectStoreNames.contains(STORE_ARTICLES)) {
                     db.createObjectStore(STORE_ARTICLES, { keyPath: 'url' });
                 }
 
-                // Contextual Word Cache Store: { sentenceHash, replacements, timestamp }
+                // contextual word cache store: saves ai analysis for specific sentences
                 if (!db.objectStoreNames.contains(STORE_CONTEXTS)) {
                     db.createObjectStore(STORE_CONTEXTS, { keyPath: 'sentenceHash' });
                 }
 
-                // Practice Content Store: { word, quiz, sentences, timestamp }
+                // practice content store: keeps the flashcards and example sentences
                 if (!db.objectStoreNames.contains(STORE_PRACTICE)) {
                     db.createObjectStore(STORE_PRACTICE, { keyPath: 'word' });
                 }
 
-                // Misunderstood Sentences Store: { id, word, sentence, timestamp }
+                // misunderstood sentences store: for when the student clicks "difficult"
                 if (!db.objectStoreNames.contains(STORE_MISUNDERSTOOD)) {
                     const store = db.createObjectStore(STORE_MISUNDERSTOOD, { keyPath: 'id', autoIncrement: true });
                     store.createIndex('word', 'word', { unique: false });
@@ -66,6 +66,7 @@ class AdaptiReadStorage {
         });
     }
 
+    // getters and setters for the various stores
     async getArticle(url) {
         return this.get(STORE_ARTICLES, url);
     }
@@ -103,9 +104,10 @@ class AdaptiReadStorage {
         });
     }
 
+    // keep track of which sentences were hard for the student
     async saveMisunderstoodSentence(word, sentence) {
         const normalizedWord = word.toLowerCase();
-        // Check for duplicates first
+        // check for duplicates first so we don't spam the same sentence
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(STORE_MISUNDERSTOOD, 'readonly');
             const store = transaction.objectStore(STORE_MISUNDERSTOOD);
@@ -135,7 +137,7 @@ class AdaptiReadStorage {
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(STORE_MISUNDERSTOOD, 'readwrite');
             const store = transaction.objectStore(STORE_MISUNDERSTOOD);
-            const request = store.delete(Number(id)); // Ensure ID is a number
+            const request = store.delete(Number(id)); // ensure id is a number
             request.onsuccess = () => resolve({ success: true });
             request.onerror = () => reject(request.error);
         });
@@ -159,17 +161,19 @@ class AdaptiReadStorage {
         });
     }
 
+    // updating how well the student knows a word
     async updateWordProficiency(word, delta, stabilityDelta = 0, interactionType = 'hover') {
         const normalizedWord = word.toLowerCase();
         let wordData = await this.getWord(normalizedWord);
 
+        // if it's a new word, initialize it with base values
         if (!wordData) {
             wordData = {
                 word: normalizedWord,
-                proficiency: 0.1, // Initial familiarity
-                stability: 0.5,   // Initial memory stability
+                proficiency: 0.1, // initial familiarity
+                stability: 0.5,   // initial memory stability
                 lastInteraction: Date.now(),
-                decayRate: 0.05,  // Base decay rate
+                decayRate: 0.05,  // base decay rate
                 interactionCount: 0,
                 contextCount: 0,
                 isDiscovered: false,
@@ -177,29 +181,29 @@ class AdaptiReadStorage {
             };
         }
 
-        // Apply weighted changes
+        // apply the changes (like adding points for seeing it)
         wordData.proficiency = Math.max(0, Math.min(1, wordData.proficiency + delta));
         wordData.stability = Math.max(0.1, wordData.stability + stabilityDelta);
         wordData.lastInteraction = Date.now();
         wordData.interactionCount++;
 
-        // Tutor: Mark as discovered on first explicit interaction (hover/click)
+        // mark as discovered if the student actually looked at the definition
         if (interactionType !== 'context_seen') {
             wordData.isDiscovered = true;
         }
 
-        // Context tracking
+        // track how many times it was just visible on screen
         if (interactionType === 'context_seen') {
             wordData.contextCount++;
         }
 
-        // Log history snippet (limit to last 5 for storage efficiency)
+        // keep a short log of the last 5 things the student did with this word
         wordData.history.push({ type: interactionType, time: Date.now() });
         if (wordData.history.length > 5) wordData.history.shift();
 
         await this.put(STORE_VOCAB, wordData);
 
-        // Detailed interaction log
+        // detailed interaction log for stats
         await this.add(STORE_INTERACTIONS, {
             word: normalizedWord,
             type: interactionType,
@@ -219,6 +223,7 @@ class AdaptiReadStorage {
         });
     }
 
+    // reset everything back to zero
     async clearAll() {
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([STORE_VOCAB, STORE_INTERACTIONS, STORE_ARTICLES, STORE_CONTEXTS, STORE_PRACTICE, STORE_MISUNDERSTOOD], 'readwrite');
@@ -233,7 +238,7 @@ class AdaptiReadStorage {
         });
     }
 
-    // Generic DB methods
+    // generic helper methods for indexeddb operations
     async get(storeName, key) {
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(storeName, 'readonly');
@@ -277,7 +282,7 @@ class AdaptiReadStorage {
     }
 }
 
-// Export singleton instance
+// export as a singleton so everyone uses the same db connection
 const storage = new AdaptiReadStorage();
 if (typeof module !== 'undefined') {
     module.exports = storage;

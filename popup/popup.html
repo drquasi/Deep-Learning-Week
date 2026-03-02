@@ -12,9 +12,11 @@
 </head>
 
 <body>
+    <!-- the main container with that cool glass look -->
     <div class="glass-container">
         <header>
             <h1 id="app-title">AdaptiRead</h1>
+            <!-- gear icon to open the settings panel -->
             <button id="settings-toggle" class="icon-btn" title="Settings">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                     stroke-linejoin="round">
@@ -27,11 +29,13 @@
         </header>
 
         <main>
+            <!-- switch between home and the coach/vocab views -->
             <div class="tab-bar">
                 <button id="tab-home" class="tab-btn active">Home</button>
                 <button id="tab-lessons" class="tab-btn">Lessons Learned</button>
             </div>
 
+            <!-- home view has the big simplify button and some toggles -->
             <div id="home-view" class="tab-content">
                 <div id="simplify-action-container" style="margin-bottom: 20px;">
                     <button id="simplify-page-btn" class="primary-btn">Simplify current page</button>
@@ -53,6 +57,7 @@
                     </label>
                 </div>
 
+                <!-- shows how many words you've encountered and mastered -->
                 <div class="stats-grid">
                     <div class="stat-item">
                         <span class="stat-value" id="stats-seen">0</span>
@@ -65,20 +70,22 @@
                 </div>
             </div>
 
+            <!-- lessons learned view has the ai coach and your personal vocab list -->
             <div id="lessons-view" class="tab-content hidden">
-                <!-- Sub-tab Bar -->
+                <!-- sub-tab bar inside lessons learned -->
                 <div class="sub-tab-bar">
                     <button id="sub-tab-coach" class="sub-tab-btn active">AI Coach</button>
                     <button id="sub-tab-vocab" class="sub-tab-btn">My Vocabulary</button>
                 </div>
 
+                <!-- loading state when the ai is thinkin' -->
                 <div id="insights-loading" class="hidden" style="text-align: center; padding: 20px;">
                     <div class="spinner" style="margin: 0 auto 12px;"></div>
                     <p class="stat-label">Analyzing...</p>
                 </div>
 
                 <div id="insights-display">
-                    <!-- Sub-view: AI Coach -->
+                    <!-- sub-view: ai coach advice and language picker -->
                     <div id="coach-sub-view">
                         <div class="coach-container" style="margin-bottom: 24px;">
                             <div
@@ -112,7 +119,7 @@
                         </div>
                     </div>
 
-                    <!-- Sub-view: My Vocabulary -->
+                    <!-- sub-view: the actual list of words you're learning -->
                     <div id="vocab-sub-view" class="hidden">
                         <div id="lessons-learned-container">
                             <h4 class="label-text"
@@ -128,6 +135,7 @@
                 </div>
             </div>
 
+            <!-- hidden panel for settings like the api key and debug tools -->
             <div id="settings-panel" class="hidden-panel">
                 <div class="level-section">
                     <label class="label-text" style="display: block; margin-bottom: 8px;">OpenAI API Key</label>
@@ -148,7 +156,7 @@
     </div>
     </div>
 
-    <!-- NEW: Vault Detail Panel -->
+    <!-- vault detail panel: shows specific hard sentences for a word -->
     <div id="vault-detail-panel" class="hidden">
         <div class="panel-header">
             <button id="close-vault-detail" class="icon-btn">
@@ -165,6 +173,7 @@
         </div>
     </div>
 
+    <!-- debug panel: where developers can play with the database -->
     <div id="debug-panel" class="hidden">
         <div class="panel-header">
             <button id="close-debug" class="icon-btn">
@@ -197,6 +206,7 @@
         </div>
     </div>
 
+    <!-- practice panel: flashcards and quick quizzes for a word -->
     <div id="practice-panel" class="hidden">
         <div class="panel-header">
             <button id="close-practice" class="icon-btn">
@@ -232,6 +242,7 @@
 
 
     </div>
+    <!-- the brains of the popup -->
     <script src="popup.js"></script>
 </body>
 

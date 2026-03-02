@@ -5,12 +5,14 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+// this is where the student's secret key lives (don't push .env to github!)
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
+// endpoint to find complex words in a bunch of sentences
 app.post('/simplify', async (req, res) => {
     const { sentences } = req.body;
 
@@ -18,11 +20,13 @@ app.post('/simplify', async (req, res) => {
         return res.status(400).json({ error: 'Invalid sentences format' });
     }
 
+    // make sure they actually set up the api key on the server
     if (!OPENAI_API_KEY || OPENAI_API_KEY === 'YOUR_OPENAI_API_KEY_HERE') {
         return res.status(500).json({ error: 'Proxy API Key not configured' });
     }
 
     try {
+        // asking gpt to find the hard words for us
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -69,6 +73,7 @@ app.post('/simplify', async (req, res) => {
     }
 });
 
+// generic chat endpoint for the ai coach
 app.post('/chat', async (req, res) => {
     const { messages, model, response_format } = req.body;
 
@@ -98,6 +103,7 @@ app.post('/chat', async (req, res) => {
     }
 });
 
+// endpoint to generate sample sentences for flashcards
 app.post('/examples', async (req, res) => {
     const { word, contextInfo } = req.body;
 
@@ -110,6 +116,7 @@ app.post('/examples', async (req, res) => {
     }
 
     try {
+        // the prompt is super specific to make sure we get good, natural sentences
         const prompt = `As an expert linguist, create exactly 6 DIVERSE and UNIQUE high-quality organic sentences for the word "${word}" ${contextInfo || ""}. 
 Ensure these sentences are different from common dictionary examples. [Seed: ${Date.now()}]
 
@@ -161,6 +168,7 @@ STRICT RULES:
     }
 });
 
+// start the server on localhost:3000
 app.listen(PORT, () => {
     console.log(`AdaptiRead Proxy running on http://localhost:${PORT}`);
 });
