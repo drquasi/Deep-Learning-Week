@@ -1,7 +1,7 @@
 {
-  "name": "adaptiread-proxy",
+  "name": "fluentify-proxy",
   "version": "1.0.0",
-  "description": "Secure proxy for AdaptiRead OpenAI API calls",
+  "description": "Secure proxy for fluentify OpenAI API calls",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

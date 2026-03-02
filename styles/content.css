@@ -1,6 +1,6 @@
-/* adaptiread content styles - clean & professional */
+/* fluentify content styles - clean & professional */
 /* this wrapper makes sure our highlights don't break the page layout */
-.adaptiread-wrapper {
+.fluentify-wrapper {
     display: inline-flex;
     vertical-align: baseline;
     cursor: help;
@@ -11,7 +11,7 @@
 }
 
 /* the blue bubble for when a word is simplified inline */
-.adaptiread-simplified {
+.fluentify-simplified {
     background-color: #3b82f6 !important;
     color: white !important;
     border-radius: 4px;
@@ -19,12 +19,12 @@
     font-weight: 500;
 }
 
-.adaptiread-original {
+.fluentify-original {
     opacity: 1;
 }
 
 /* light background tint for when we find a complex word */
-.adaptiread-highlight {
+.fluentify-highlight {
     background-color: rgba(59, 130, 246, 0.2);
     border-bottom: 2px solid #3b82f6;
     border-radius: 2px;
@@ -33,12 +33,12 @@
     transition: background-color 0.2s;
 }
 
-.adaptiread-highlight:hover {
+.fluentify-highlight:hover {
     background-color: rgba(59, 130, 246, 0.2);
 }
 
 /* if the student knows the word well, we make the highlight disappear slowly */
-.adaptiread-highlight.mastered {
+.fluentify-highlight.mastered {
     background-color: transparent !important;
     border-bottom: none !important;
     color: inherit !important;

@@ -1,6 +1,6 @@
-# AdaptiRead Proxy Setup
+# fluentify Proxy Setup
 
-This proxy server allows you to use your OpenAI API key securely with the AdaptiRead extension.
+This proxy server allows you to use your OpenAI API key securely with the fluentify extension.
 
 ## One-Click Setup (Windows)
 

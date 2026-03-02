@@ -1,6 +1,6 @@
-# AdaptiRead: AI-Powered ESL Learning Extension
+# fluentify: AI-Powered ESL Learning Extension
 
-AdaptiRead is a sophisticated Chrome extension designed for advanced ESL learners to master complex vocabulary through contextual discovery, AI coaching, and interactive practice.
+fluentify is a sophisticated Chrome extension designed for advanced ESL learners to master complex vocabulary through contextual discovery, AI coaching, and interactive practice.
 
 ## Core Features
 
@@ -55,5 +55,5 @@ The proxy server handles AI simplification and coaching requests.
 ## Usage Tips
 
 -   **API Key**: While you can use the proxy server, you can also insert your OpenAI API key **directly into the extension**. Open the extension, go to the **Home** tab, click **Settings**, and paste your key into the OpenAI Key field.
--   **Discovery**: Hover over any highlighted word to see its definition. Right-click any non-highlighted word and select "Highlight with AdaptiRead" to add it to your list.
+-   **Discovery**: Hover over any highlighted word to see its definition. Right-click any non-highlighted word and select "Highlight with fluentify" to add it to your list.
 -   **Lessons Learned**: Visit the "Lessons Learned" tab to see your AI Coaching report and full vocabulary list.

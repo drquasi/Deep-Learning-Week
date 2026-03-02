@@ -1,4 +1,4 @@
-// content script for adaptiread
+// content script for fluentify
 // this runs on every page the student visits
 let globalLoadingIndicator = null;
 let hasScannedOnThisPage = false;
@@ -24,7 +24,7 @@ function safeSendMessage(message) {
     return chrome.runtime.sendMessage(message).catch(err => {
         // ignore errors about the extension being updated or closed
         if (!err.message.includes('Extension context invalidated')) {
-            console.error('AdaptiRead Error:', err);
+            console.error('fluentify Error:', err);
         }
         return null;
     });
@@ -32,9 +32,9 @@ function safeSendMessage(message) {
 
 // inject the tooltip styles into the page head
 function injectStyles() {
-    if (!document.head || document.getElementById('adaptiread-styles')) return;
+    if (!document.head || document.getElementById('fluentify-styles')) return;
     const style = document.createElement('style');
-    style.id = 'adaptiread-styles';
+    style.id = 'fluentify-styles';
     style.textContent = TOOLTIP_CSS;
     document.head.appendChild(style);
 }
@@ -42,14 +42,14 @@ function injectStyles() {
 // --- UI COMPONENTS ---
 // show a little popup asking if they want to simplify the page
 function showAskToSimplifyPopup() {
-    if (hasScannedOnThisPage || document.getElementById('adaptiread-ask-popup')) return;
+    if (hasScannedOnThisPage || document.getElementById('fluentify-ask-popup')) return;
 
     const popup = document.createElement('div');
-    popup.id = 'adaptiread-ask-popup';
-    popup.className = 'adaptiread-ask-popup';
+    popup.id = 'fluentify-ask-popup';
+    popup.className = 'fluentify-ask-popup';
     popup.innerHTML = `
         <div class="title">Simplify Reading?</div>
-        <div class="desc">AdaptiRead can scan this page to highlight complex words and provide definitions.</div>
+        <div class="desc">fluentify can scan this page to highlight complex words and provide definitions.</div>
         <div class="actions">
             <button class="btn-yes">Yes, Simplify</button>
             <button class="btn-no">Not Now</button>
@@ -59,7 +59,7 @@ function showAskToSimplifyPopup() {
 
     popup.querySelector('.btn-yes').addEventListener('click', () => {
         popup.remove();
-        startAdaptiRead();
+        startfluentify();
     });
 
     popup.querySelector('.btn-no').addEventListener('click', () => {
@@ -75,9 +75,9 @@ function showAskToSimplifyPopup() {
 function showLoadingIndicator() {
     if (globalLoadingIndicator) return;
     globalLoadingIndicator = document.createElement('div');
-    globalLoadingIndicator.className = 'adaptiread-global-loading';
+    globalLoadingIndicator.className = 'fluentify-global-loading';
     globalLoadingIndicator.innerHTML = `
-        <div class="adaptiread-spinner"></div>
+        <div class="fluentify-spinner"></div>
         <span>Analyzing vocabulary...</span>
     `;
     document.body.appendChild(globalLoadingIndicator);
@@ -93,16 +93,16 @@ function hideLoadingIndicator() {
 
 // --- CORE LOGIC ---
 // kickoff function for the extension logic
-function startAdaptiRead(force = false) {
+function startfluentify(force = false) {
     if (isScanningActive && !force) return;
     if (force) {
         processedNodes = new WeakSet();
         isApplyingHighlights = false;
     }
-    console.log('AdaptiRead: Starting scanning engine (force=' + force + ')...');
+    console.log('fluentify: Starting scanning engine (force=' + force + ')...');
     hasScannedOnThisPage = true;
     isScanningActive = true;
-    const existingPopup = document.getElementById('adaptiread-ask-popup');
+    const existingPopup = document.getElementById('fluentify-ask-popup');
     if (existingPopup) existingPopup.remove();
 
     injectStyles();
@@ -112,10 +112,10 @@ function startAdaptiRead(force = false) {
 
 // --- INIT ---
 // listen for messages from background or popup
-console.log('AdaptiRead: Content script loaded');
+console.log('fluentify: Content script loaded');
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'START_SIMPLIFY') {
-        startAdaptiRead(true); // force redo it
+        startfluentify(true); // force redo it
         sendResponse({ success: true });
     } else if (msg.type === 'HIGHLIGHT_WORD') {
         // highlight a specific word (from right click)
@@ -136,7 +136,7 @@ async function highlightSpecificWord(word) {
     let node;
     while (node = walker.nextNode()) {
         const parent = node.parentElement;
-        if (!parent || parent.closest('.adaptiread-highlight, .adaptiread-tooltip, .adaptiread-ask-popup')) continue;
+        if (!parent || parent.closest('.fluentify-highlight, .fluentify-tooltip, .fluentify-ask-popup')) continue;
         // avoid code and scripts
         const forbidden = ['SCRIPT', 'STYLE', 'TEXTAREA', 'NOSCRIPT', 'CODE', 'PRE', 'INPUT', 'SELECT'];
         if (forbidden.includes(parent.tagName)) continue;
@@ -169,7 +169,7 @@ async function highlightSpecificWord(word) {
                     fragment.appendChild(tn);
                 } else {
                     const span = document.createElement('span');
-                    span.className = 'adaptiread-highlight';
+                    span.className = 'fluentify-highlight';
                     span.textContent = seg.word;
                     span.setAttribute('data-word', seg.word.toLowerCase());
                     fragment.appendChild(span);
@@ -190,15 +190,15 @@ function setupObserver() {
         let shouldScan = false;
         for (const mutation of mutations) {
             // ignore our own popups
-            if (mutation.target.closest?.('.adaptiread-tooltip, .adaptiread-ask-popup, .adaptiread-global-loading')) continue;
+            if (mutation.target.closest?.('.fluentify-tooltip, .fluentify-ask-popup, .fluentify-global-loading')) continue;
 
             const hasNewContent = Array.from(mutation.addedNodes).some(n => {
                 if (n.nodeType === Node.TEXT_NODE) return n.textContent.trim().length > 5;
                 if (n.nodeType === Node.ELEMENT_NODE) {
-                    const isOurs = n.classList.contains('adaptiread-highlight') ||
-                        n.classList.contains('adaptiread-tooltip') ||
-                        n.classList.contains('adaptiread-global-loading');
-                    return !isOurs && !n.querySelector?.('.adaptiread-highlight');
+                    const isOurs = n.classList.contains('fluentify-highlight') ||
+                        n.classList.contains('fluentify-tooltip') ||
+                        n.classList.contains('fluentify-global-loading');
+                    return !isOurs && !n.querySelector?.('.fluentify-highlight');
                 }
                 return false;
             });
@@ -229,7 +229,7 @@ async function scanAndProcess(isInitial = false) {
     while (node = walker.nextNode()) {
         const parent = node.parentElement;
         if (!parent || processedNodes.has(node)) continue;
-        if (parent.closest('.adaptiread-highlight, .adaptiread-tooltip, .adaptiread-ask-popup')) continue;
+        if (parent.closest('.fluentify-highlight, .fluentify-tooltip, .fluentify-ask-popup')) continue;
 
         const tagName = parent.tagName;
         const forbidden = ['SCRIPT', 'STYLE', 'TEXTAREA', 'NOSCRIPT', 'CODE', 'PRE', 'INPUT', 'SELECT'];
@@ -288,7 +288,7 @@ async function scanAndProcess(isInitial = false) {
                 return;
             }
 
-            console.log(`AdaptiRead: Highlighting ${words.size} unique words in block.`);
+            console.log(`fluentify: Highlighting ${words.size} unique words in block.`);
             const sortedWords = Array.from(words).sort((a, b) => b.length - a.length);
 
             nodes.forEach(textNode => {
@@ -328,7 +328,7 @@ async function scanAndProcess(isInitial = false) {
                             fragment.appendChild(tn);
                         } else {
                             const span = document.createElement('span');
-                            span.className = 'adaptiread-highlight';
+                            span.className = 'fluentify-highlight';
                             span.textContent = seg.word;
                             span.setAttribute('data-word', seg.word.toLowerCase());
                             fragment.appendChild(span);
@@ -340,7 +340,7 @@ async function scanAndProcess(isInitial = false) {
         });
         attachIgnoreObserverToHighlights();
     } catch (err) {
-        console.error('AdaptiRead: Scan error', err);
+        console.error('fluentify: Scan error', err);
     } finally {
         isApplyingHighlights = false;
         hideLoadingIndicator();
@@ -356,8 +356,8 @@ let hoverTimer = null;
 
 // detect when human hovers over a highlighted word
 document.addEventListener('mouseover', async (e) => {
-    const isTooltip = e.target.closest('.adaptiread-tooltip');
-    const isHighlight = e.target.closest('.adaptiread-highlight');
+    const isTooltip = e.target.closest('.fluentify-tooltip');
+    const isHighlight = e.target.closest('.fluentify-highlight');
 
     if (isTooltip || isHighlight) {
         if (tooltipHideTimeout) {
@@ -367,7 +367,7 @@ document.addEventListener('mouseover', async (e) => {
     }
 
     if (!isHighlight || !chrome.runtime?.id) return;
-    const target = e.target.closest('.adaptiread-highlight');
+    const target = e.target.closest('.fluentify-highlight');
     if (activeTooltip && activeTooltip._target === target) return;
 
     const word = target.getAttribute('data-word');
@@ -401,8 +401,8 @@ async function showTooltip(target, word) {
     if (activeTooltip) hideTooltip();
     activeTooltip = document.createElement('div');
     activeTooltip._target = target;
-    activeTooltip.className = 'adaptiread-tooltip';
-    activeTooltip.innerHTML = `<div class="adaptiread-loading">Loading definition...</div>`;
+    activeTooltip.className = 'fluentify-tooltip';
+    activeTooltip.innerHTML = `<div class="fluentify-loading">Loading definition...</div>`;
     document.body.appendChild(activeTooltip);
 
     // work out where to put the bubble
@@ -441,13 +441,13 @@ async function showTooltip(target, word) {
             <div class="definition">${data.definition}</div>
             <div class="synonym">${data.synonym ? `Synonym: ${data.synonym}` : ''}</div>
             <div class="tutor-actions" style="display: flex; gap: 8px;">
-                <button class="btn-known" id="adaptiread-mark-known" style="flex: 2;">I Already Know This</button>
-                <button class="btn-known" id="adaptiread-view-examples" style="flex: 1; background: #374151;">Examples</button>
+                <button class="btn-known" id="fluentify-mark-known" style="flex: 2;">I Already Know This</button>
+                <button class="btn-known" id="fluentify-view-examples" style="flex: 1; background: #374151;">Examples</button>
             </div>
         `;
 
         // handle marking word as already known
-        activeTooltip.querySelector('#adaptiread-mark-known').onclick = (e) => {
+        activeTooltip.querySelector('#fluentify-mark-known').onclick = (e) => {
             e.stopPropagation();
             safeSendMessage({ type: 'LOG_INTERACTION', word: data.word, interaction: 'click' });
             safeSendMessage({ type: 'MARK_KNOWN', word: data.word });
@@ -457,7 +457,7 @@ async function showTooltip(target, word) {
         };
 
         // switch to example sentences view
-        activeTooltip.querySelector('#adaptiread-view-examples').onclick = (e) => {
+        activeTooltip.querySelector('#fluentify-view-examples').onclick = (e) => {
             e.stopPropagation();
             safeSendMessage({ type: 'LOG_INTERACTION', word: data.word, interaction: 'click' });
             showInPageExamples(data.word, activeTooltip, data, target);
@@ -472,13 +472,13 @@ async function showInPageExamples(word, tooltip, wordData, target, forceRefresh 
     tooltip.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
             <div class="word" style="margin: 0;">Examples: ${word}</div>
-            <button id="adaptiread-close-examples" style="background: none; border: none; color: #9ca3af; cursor: pointer; padding: 4px;">✕</button>
+            <button id="fluentify-close-examples" style="background: none; border: none; color: #9ca3af; cursor: pointer; padding: 4px;">✕</button>
         </div>
-        <div class="adaptiread-spinner" style="margin: 20px auto;"></div>
+        <div class="fluentify-spinner" style="margin: 20px auto;"></div>
         <p style="font-size: 11px; text-align: center; color: #9ca3af;">Loading usage samples...</p>
     `;
 
-    tooltip.querySelector('#adaptiread-close-examples').onclick = (e) => {
+    tooltip.querySelector('#fluentify-close-examples').onclick = (e) => {
         e.stopPropagation();
         hideTooltip();
     };
@@ -490,9 +490,9 @@ async function showInPageExamples(word, tooltip, wordData, target, forceRefresh 
         tooltip.innerHTML = `
             <div class="word">${word}</div>
             <div class="definition">No examples found for this word.</div>
-            <button id="adaptiread-error-close" class="btn-known" style="margin-top: 12px; background: #374151;">Close</button>
+            <button id="fluentify-error-close" class="btn-known" style="margin-top: 12px; background: #374151;">Close</button>
         `;
-        tooltip.querySelector('#adaptiread-error-close').onclick = (e) => {
+        tooltip.querySelector('#fluentify-error-close').onclick = (e) => {
             e.stopPropagation();
             hideTooltip();
         };
@@ -508,16 +508,16 @@ async function showInPageExamples(word, tooltip, wordData, target, forceRefresh 
             tooltip.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                     <div class="word" style="margin: 0;">Examples: ${word}</div>
-                    <button id="adaptiread-close-end" style="background: none; border: none; color: #9ca3af; cursor: pointer; padding: 4px;">✕</button>
+                    <button id="fluentify-close-end" style="background: none; border: none; color: #9ca3af; cursor: pointer; padding: 4px;">✕</button>
                 </div>
                 <div style="text-align: center; padding: 10px 0;">
                     <p style="font-size: 14px; color: #10b981; font-weight: 500;">Review Complete!</p>
                     <p style="font-size: 11px; color: #9ca3af; margin-top: 4px; margin-bottom: 16px;">Proficiency updated.</p>
-                    <button id="adaptiread-gen-more" class="btn-known" style="background: #374151; font-size: 11px; padding: 8px;">Generate 6 More Examples</button>
+                     <button id="fluentify-gen-more" class="btn-known" style="background: #374151; font-size: 11px; padding: 8px;">Generate 6 More Examples</button>
                 </div>
             `;
-            tooltip.querySelector('#adaptiread-close-end').onclick = () => hideTooltip();
-            tooltip.querySelector('#adaptiread-gen-more').onclick = (e) => {
+            tooltip.querySelector('#fluentify-close-end').onclick = () => hideTooltip();
+            tooltip.querySelector('#fluentify-gen-more').onclick = (e) => {
                 e.stopPropagation();
                 showInPageExamples(word, tooltip, wordData, target, true);
             };
@@ -528,7 +528,7 @@ async function showInPageExamples(word, tooltip, wordData, target, forceRefresh 
         tooltip.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <div class="word" style="margin: 0;">Examples: ${word}</div>
-                <button id="adaptiread-close-card" style="background: none; border: none; color: #9ca3af; cursor: pointer; padding: 4px;">✕</button>
+                <button id="fluentify-close-card" style="background: none; border: none; color: #9ca3af; cursor: pointer; padding: 4px;">✕</button>
             </div>
             <div class="pos">${wordData.partOfSpeech}</div>
             <div style="min-height: 80px; display: flex; align-items: center; margin-bottom: 16px;">
@@ -541,7 +541,7 @@ async function showInPageExamples(word, tooltip, wordData, target, forceRefresh 
             <div style="margin-top: 12px; font-size: 10px; color: #6b7280; text-align: center;">${currentIndex + 1} / ${sentences.length}</div>
         `;
 
-        tooltip.querySelector('#adaptiread-close-card').onclick = (e) => {
+        tooltip.querySelector('#fluentify-close-card').onclick = (e) => {
             e.stopPropagation();
             hideTooltip();
         };
@@ -599,21 +599,21 @@ const ignoreObserver = new IntersectionObserver((entries) => {
 
 // hook up the observer to all highlight elements
 function attachIgnoreObserverToHighlights() {
-    document.querySelectorAll('.adaptiread-highlight').forEach(el => ignoreObserver.observe(el));
+    document.querySelectorAll('.fluentify-highlight').forEach(el => ignoreObserver.observe(el));
 }
 
 // --- INIT ---
 // entry points for the content script
-console.log('AdaptiRead: Content script loaded');
+console.log('fluentify: Content script loaded');
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'START_SIMPLIFY') {
-        startAdaptiRead();
+        startfluentify();
     }
 });
 
 chrome.storage.local.get(['enabled'], (res) => {
     isEnabled = res.enabled !== false;
-    console.log('AdaptiRead: isEnabled =', isEnabled);
+    console.log('fluentify: isEnabled =', isEnabled);
     if (isEnabled && chrome.runtime?.id) {
         injectStyles();
         showAskToSimplifyPopup();
@@ -622,7 +622,7 @@ chrome.storage.local.get(['enabled'], (res) => {
 
 // the big bunch of css for the tooltips and highlights
 const TOOLTIP_CSS = `
-    .adaptiread-highlight {
+    .fluentify-highlight {
         background-color: rgba(59, 130, 246, 0.2);
         border-bottom: 2px solid #3b82f6;
         cursor: help;
@@ -630,46 +630,46 @@ const TOOLTIP_CSS = `
         border-radius: 2px;
         padding: 0 1px;
     }
-    .adaptiread-highlight:hover { background: rgba(59, 130, 246, 0.2); }
-    .adaptiread-tooltip {
+    .fluentify-highlight:hover { background: rgba(59, 130, 246, 0.2); }
+    .fluentify-tooltip {
         position: absolute; z-index: 2147483647; width: 280px; 
         background: #1f2937; border: 1px solid #374151; border-radius: 12px;
         padding: 20px; color: #f9fafb; font-family: 'Inter', sans-serif; 
         opacity: 0; visibility: hidden; transition: all 0.2s ease;
         box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
     }
-    .adaptiread-tooltip.visible { opacity: 1; visibility: visible; }
-    .adaptiread-tooltip .word { font-size: 16px; font-weight: 500; margin-bottom: 4px; color: #f9fafb; }
-    .adaptiread-tooltip .pos { font-size: 10px; font-weight: 500; text-transform: uppercase; color: #3b82f6; margin-bottom: 12px; letter-spacing: 0.5px; }
-    .adaptiread-tooltip .definition { font-size: 13px; line-height: 1.6; color: #9ca3af; margin-bottom: 8px; }
-    .adaptiread-tooltip .synonym { font-size: 13px; color: #9ca3af; margin-bottom: 16px; font-style: italic; }
-    .adaptiread-tooltip .btn-known { width: 100%; background: #3b82f6; border: none; border-radius: 6px; padding: 10px; color: white; font-size: 12px; font-weight: 500; cursor: pointer; transition: opacity 0.2s; }
-    .adaptiread-tooltip .btn-known:hover { opacity: 0.9; }
+    .fluentify-tooltip.visible { opacity: 1; visibility: visible; }
+    .fluentify-tooltip .word { font-size: 16px; font-weight: 500; margin-bottom: 4px; color: #f9fafb; }
+    .fluentify-tooltip .pos { font-size: 10px; font-weight: 500; text-transform: uppercase; color: #3b82f6; margin-bottom: 12px; letter-spacing: 0.5px; }
+    .fluentify-tooltip .definition { font-size: 13px; line-height: 1.6; color: #9ca3af; margin-bottom: 8px; }
+    .fluentify-tooltip .synonym { font-size: 13px; color: #9ca3af; margin-bottom: 16px; font-style: italic; }
+    .fluentify-tooltip .btn-known { width: 100%; background: #3b82f6; border: none; border-radius: 6px; padding: 10px; color: white; font-size: 12px; font-weight: 500; cursor: pointer; transition: opacity 0.2s; }
+    .fluentify-tooltip .btn-known:hover { opacity: 0.9; }
     
-    .adaptiread-global-loading {
+    .fluentify-global-loading {
         position: fixed; top: 24px; right: 24px; z-index: 2147483647;
         background: #1f2937; padding: 12px 20px; border-radius: 50px; border: 1px solid #374151;
         color: #f9fafb; display: flex; align-items: center; gap: 12px; font-size: 13px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
-    .adaptiread-spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.1); border-top-color: #3b82f6; border-radius: 50%; animation: adaptiread-spin 0.8s linear infinite; }
-    @keyframes adaptiread-spin { to { transform: rotate(360deg); } }
+    .fluentify-spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.1); border-top-color: #3b82f6; border-radius: 50%; animation: fluentify-spin 0.8s linear infinite; }
+    @keyframes fluentify-spin { to { transform: rotate(360deg); } }
     
-    .adaptiread-ask-popup {
+    .fluentify-ask-popup {
         position: fixed; top: 24px; right: 24px; z-index: 2147483647; width: 300px;
         background: #1f2937; padding: 24px; border-radius: 16px; border: 1px solid #374151; 
         color: #f9fafb; font-family: 'Inter', sans-serif;
         box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-        animation: adaptiread-slide-in 0.3s ease-out;
+        animation: fluentify-slide-in 0.3s ease-out;
     }
-    @keyframes adaptiread-slide-in {
+    @keyframes fluentify-slide-in {
         from { transform: translateY(-10px); opacity: 0; }
         to { transform: translateY(0); opacity: 1; }
     }
-    .adaptiread-ask-popup .title { font-size: 15px; font-weight: 500; margin-bottom: 8px; }
-    .adaptiread-ask-popup .desc { font-size: 13px; color: #9ca3af; margin-bottom: 18px; line-height: 1.5; }
-    .adaptiread-ask-popup .actions { display: flex; gap: 8px; }
-    .adaptiread-ask-popup button { flex: 1; padding: 10px; border-radius: 8px; border: none; font-weight: 500; cursor: pointer; font-size: 12px; transition: all 0.2s; }
-    .adaptiread-ask-popup .btn-yes { background: #3b82f6; color: white; }
-    .adaptiread-ask-popup .btn-no { background: #374151; color: #f9fafb; }
+    .fluentify-ask-popup .title { font-size: 15px; font-weight: 500; margin-bottom: 8px; }
+    .fluentify-ask-popup .desc { font-size: 13px; color: #9ca3af; margin-bottom: 18px; line-height: 1.5; }
+    .fluentify-ask-popup .actions { display: flex; gap: 8px; }
+    .fluentify-ask-popup button { flex: 1; padding: 10px; border-radius: 8px; border: none; font-weight: 500; cursor: pointer; font-size: 12px; transition: all 0.2s; }
+    .fluentify-ask-popup .btn-yes { background: #3b82f6; color: white; }
+    .fluentify-ask-popup .btn-no { background: #374151; color: #f9fafb; }
 `;

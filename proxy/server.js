@@ -170,5 +170,6 @@ STRICT RULES:
 
 // start the server on localhost:3000
 app.listen(PORT, () => {
-    console.log(`AdaptiRead Proxy running on http://localhost:${PORT}`);
+    console.log(`A// fluentify proxy server
+unning on http://localhost:${PORT}`);
 });

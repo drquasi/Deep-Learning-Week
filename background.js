@@ -1,4 +1,4 @@
-// adaptiread background script
+// fluentify background script
 importScripts('storage.js');
 
 // set up everything when the extension is first installed
@@ -12,15 +12,15 @@ chrome.runtime.onInstalled.addListener(async () => {
 
     try {
         // start up the database
-        await self.adaptiReadStorage.init();
-        console.log('AdaptiRead Initialized.');
+        await self.fluentifyStorage.init();
+        console.log('fluentify Initialized.');
         // apply some decay so words get harder over time
         await applyDecay();
 
         // right click menu option for the user
         chrome.contextMenus.create({
-            id: 'highlight-with-adaptiread',
-            title: 'Highlight with AdaptiRead',
+            id: 'highlight-with-fluentify',
+            title: 'Highlight with fluentify',
             contexts: ['selection']
         });
 
@@ -35,7 +35,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 // handles when user clicks the right click menu
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-    if (info.menuItemId === 'highlight-with-adaptiread' && info.selectionText) {
+    if (info.menuItemId === 'highlight-with-fluentify' && info.selectionText) {
         const word = info.selectionText.trim().split(/\s+/)[0].toLowerCase();
         if (word && tab?.id) {
             // log the interaction and tell content script to highlight it
@@ -48,7 +48,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 // make sure db is ready and decay is applied when browser starts
 chrome.runtime.onStartup.addListener(async () => {
     try {
-        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
+        if (!self.fluentifyStorage.db) await self.fluentifyStorage.init();
         await applyDecay();
     } catch (err) {
         console.error('Startup decay failed:', err);
@@ -111,28 +111,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         'FETCH_DEFINITION': (msg) => fetchDefinition(msg.word),
         'GET_DEFINITION': (msg) => fetchDefinition(msg.word),
         'GET_VOCAB_STATS': () => getVocabStats(),
-        'UPDATE_PROFICIENCY': (msg) => self.adaptiReadStorage.updateWordProficiency(msg.word, msg.delta, msg.stabilityDelta, msg.interactionType),
+        'UPDATE_PROFICIENCY': (msg) => self.fluentifyStorage.updateWordProficiency(msg.word, msg.delta, msg.stabilityDelta, msg.interactionType),
         'LOG_INTERACTION': (msg) => handleInteraction(word, msg.interaction),
         'GET_LEARNING_INSIGHTS': () => getLearningInsights(),
         'GET_PRACTICE_CONTENT': (msg) => getPracticeContent(msg.word, msg.forceRefresh),
         'GET_DAILY_QUIZ': () => getDailyQuiz(),
         'GET_READING_RECOMMENDATIONS': () => getReadingRecommendations(),
-        'LOG_MISUNDERSTOOD': (msg) => self.adaptiReadStorage.saveMisunderstoodSentence(msg.word, msg.sentence),
-        'GET_MISUNDERSTOOD_SENTENCES': () => self.adaptiReadStorage.getAllMisunderstoodSentences(),
+        'LOG_MISUNDERSTOOD': (msg) => self.fluentifyStorage.saveMisunderstoodSentence(msg.word, msg.sentence),
+        'GET_MISUNDERSTOOD_SENTENCES': () => self.fluentifyStorage.getAllMisunderstoodSentences(),
         'DEBUG_RESET_DB': async () => {
             const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
             await chrome.storage.local.clear();
             if (openaiKey) await chrome.storage.local.set({ openaiKey });
-            await self.adaptiReadStorage.clearAll();
+            await self.fluentifyStorage.clearAll();
             return { success: true };
         },
         'DEBUG_FORCE_DECAY': (msg) => applyDecay(msg.days || 7),
-        'DEBUG_GET_ALL_WORDS': () => self.adaptiReadStorage.getAllWords(),
+        'DEBUG_GET_ALL_WORDS': () => self.fluentifyStorage.getAllWords(),
         'DEBUG_MOCK_DATA': (msg) => debugMockData(msg.word),
         'MARK_KNOWN': (msg) => handleInteraction(msg.word, 'know_it_click'),
         'SIMPLIFY_SENTENCE': (msg) => simplifySentence(msg.text),
-        'DELETE_MISUNDERSTOOD_SENTENCE': (msg) => self.adaptiReadStorage.deleteMisunderstoodSentence(msg.id),
-        'DELETE_WORD': (msg) => self.adaptiReadStorage.deleteWord(msg.word),
+        'DELETE_MISUNDERSTOOD_SENTENCE': (msg) => self.fluentifyStorage.deleteMisunderstoodSentence(msg.id),
+        'DELETE_WORD': (msg) => self.fluentifyStorage.deleteWord(msg.word),
         'CHAT_WITH_TUTOR': (msg) => chatWithTutor(msg.text)
     };
 
@@ -170,11 +170,11 @@ async function hashSentence(sentence) {
 // big function to find all complex words on a page
 async function processBatch(url, sentences) {
     try {
-        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
+        if (!self.fluentifyStorage.db) await self.fluentifyStorage.init();
 
         const CACHE_VERSION = 'v2_lenient';
         // check if we already scanned this page before
-        const cachedArticle = await self.adaptiReadStorage.getArticle(url);
+        const cachedArticle = await self.fluentifyStorage.getArticle(url);
         if (cachedArticle && cachedArticle.version === CACHE_VERSION) {
             return cachedArticle.replacements;
         }
@@ -187,7 +187,7 @@ async function processBatch(url, sentences) {
             if (!normalized) continue;
 
             const hash = await hashSentence(normalized);
-            const cachedContext = await self.adaptiReadStorage.getContext(hash);
+            const cachedContext = await self.fluentifyStorage.getContext(hash);
 
             if (cachedContext) {
                 // use cached words if we have them
@@ -198,12 +198,12 @@ async function processBatch(url, sentences) {
         }
 
         if (sentencesToAnalyze.length === 0) {
-            await self.adaptiReadStorage.saveArticle(url, allIdentifications, CACHE_VERSION);
+            await self.fluentifyStorage.saveArticle(url, allIdentifications, CACHE_VERSION);
             return allIdentifications;
         }
 
         // keep track of mastered words so we don't bother highlighting them
-        const allWords = await self.adaptiReadStorage.getAllWords();
+        const allWords = await self.fluentifyStorage.getAllWords();
         const masteredWords = new Set(allWords.filter(w => w.proficiency > 0.8).map(w => w.word));
 
         // split big pages into chunks so ai doesn't get overwhelmed
@@ -267,7 +267,7 @@ async function processBatch(url, sentences) {
 
                 for (const item of chunk) {
                     const segmentWords = filtered.filter(w => item.normalized.includes(w.toLowerCase()));
-                    await self.adaptiReadStorage.saveContext(item.hash, segmentWords);
+                    await self.fluentifyStorage.saveContext(item.hash, segmentWords);
                     allIdentifications[item.original] = segmentWords;
                 }
             } catch (err) {
@@ -279,7 +279,7 @@ async function processBatch(url, sentences) {
         }
 
         // save the final results for this url
-        await self.adaptiReadStorage.saveArticle(url, allIdentifications, CACHE_VERSION);
+        await self.fluentifyStorage.saveArticle(url, allIdentifications, CACHE_VERSION);
         return allIdentifications;
 
     } catch (err) {
@@ -315,9 +315,9 @@ async function fetchDefinition(word) {
 // update word score when user does something
 async function handleInteraction(word, type) {
     try {
-        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
+        if (!self.fluentifyStorage.db) await self.fluentifyStorage.init();
         const impact = INTERACTION_IMPACT[type] || { proficiency: 0, stability: 0 };
-        return await self.adaptiReadStorage.updateWordProficiency(word, impact.proficiency, impact.stability, type);
+        return await self.fluentifyStorage.updateWordProficiency(word, impact.proficiency, impact.stability, type);
     } catch (err) {
         console.error('Interaction Error:', err);
         return null;
@@ -327,9 +327,9 @@ async function handleInteraction(word, type) {
 // generate the big ai coaching report
 async function getLearningInsights() {
     try {
-        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
-        const allWords = await self.adaptiReadStorage.getAllWords();
-        const misunderstood = await self.adaptiReadStorage.getAllMisunderstoodSentences();
+        if (!self.fluentifyStorage.db) await self.fluentifyStorage.init();
+        const allWords = await self.fluentifyStorage.getAllWords();
+        const misunderstood = await self.fluentifyStorage.getAllMisunderstoodSentences();
         const vaultedWords = new Set(misunderstood.map(m => m.word.toLowerCase()));
 
         // get everything the student is working on
@@ -409,8 +409,8 @@ async function getLearningInsights() {
 // make scores go down if student hasn't practiced in a while
 async function applyDecay(manualDays = 0) {
     try {
-        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
-        const db = self.adaptiReadStorage.db;
+        if (!self.fluentifyStorage.db) await self.fluentifyStorage.init();
+        const db = self.fluentifyStorage.db;
         const transaction = db.transaction(['vocabulary'], 'readwrite');
         const store = transaction.objectStore('vocabulary');
         const request = store.getAll();
@@ -444,8 +444,8 @@ async function applyDecay(manualDays = 0) {
 // get quick stats for the home tab
 async function getVocabStats() {
     try {
-        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
-        const allWords = await self.adaptiReadStorage.getAllWords();
+        if (!self.fluentifyStorage.db) await self.fluentifyStorage.init();
+        const allWords = await self.fluentifyStorage.getAllWords();
         const discoveredWords = allWords.filter(w => w.isDiscovered);
         return {
             total: discoveredWords.length,
@@ -473,11 +473,11 @@ async function getPracticeContent(word, forceRefresh = false) {
     };
 
     try {
-        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
+        if (!self.fluentifyStorage.db) await self.fluentifyStorage.init();
 
         if (!forceRefresh) {
             // check if we already have some cached
-            const cached = await self.adaptiReadStorage.getPracticeContent(word);
+            const cached = await self.fluentifyStorage.getPracticeContent(word);
             if (cached && cached.sentences && cached.sentences.length >= 6) return cached;
         }
 
@@ -542,7 +542,7 @@ STRICT RULES:
         if (validatedSentences.length < 3) return fallback;
 
         const finalContent = { ...content, sentences: validatedSentences };
-        await self.adaptiReadStorage.savePracticeContent(word, finalContent);
+        await self.fluentifyStorage.savePracticeContent(word, finalContent);
         return finalContent;
     } catch (err) {
         console.error('Practice Content Error:', err);
@@ -553,8 +553,8 @@ STRICT RULES:
 // get some words for the student to review today
 async function getDailyQuiz() {
     try {
-        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
-        const allWords = await self.adaptiReadStorage.getAllWords();
+        if (!self.fluentifyStorage.db) await self.fluentifyStorage.init();
+        const allWords = await self.fluentifyStorage.getAllWords();
         // pick words with low scores
         const dueWords = allWords
             .filter(w => w.isDiscovered && w.proficiency < 0.9)
@@ -572,8 +572,8 @@ async function getDailyQuiz() {
 // find a wikipedia page to read based on what student is struggling with
 async function getReadingRecommendations() {
     try {
-        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
-        const allWords = await self.adaptiReadStorage.getAllWords();
+        if (!self.fluentifyStorage.db) await self.fluentifyStorage.init();
+        const allWords = await self.fluentifyStorage.getAllWords();
         const struggling = allWords.filter(w => w.isDiscovered && w.proficiency < 0.5 && w.contextCount > 1).slice(0, 3);
 
         const { openaiKey } = await chrome.storage.local.get(['openaiKey']);
@@ -615,10 +615,10 @@ async function getReadingRecommendations() {
 // just for testing stuff
 async function debugMockData(specificWord) {
     try {
-        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
+        if (!self.fluentifyStorage.db) await self.fluentifyStorage.init();
         const testWords = specificWord ? [specificWord] : ['comprehensive', 'infrastructure', 'mitigate', 'resilient', 'paradigm'];
 
-        const db = self.adaptiReadStorage.db;
+        const db = self.fluentifyStorage.db;
         const transaction = db.transaction(['vocabulary'], 'readwrite');
         const store = transaction.objectStore('vocabulary');
 
@@ -648,10 +648,10 @@ async function debugMockData(specificWord) {
 // talk to the friendly ai tutor
 async function chatWithTutor(text) {
     try {
-        if (!self.adaptiReadStorage.db) await self.adaptiReadStorage.init();
-        const allWords = await self.adaptiReadStorage.getAllWords();
+        if (!self.fluentifyStorage.db) await self.fluentifyStorage.init();
+        const allWords = await self.fluentifyStorage.getAllWords();
         const focalWords = allWords.filter(w => w.isDiscovered).map(w => w.word);
-        const misunderstood = await self.adaptiReadStorage.getAllMisunderstoodSentences();
+        const misunderstood = await self.fluentifyStorage.getAllMisunderstoodSentences();
         const vaultedSentences = misunderstood.map(m => `"${m.sentence}" (${m.word})`).join('\n');
 
         const systemPrompt = `You are a friendly and encouraging AI Tutor. Your objective is to help advanced ESL learners master complex vocabulary. 

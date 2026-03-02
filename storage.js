@@ -1,8 +1,8 @@
-// adaptiread storage module
+// fluentify storage module
 // this uses indexeddb to save the student's progress and words they've seen
 // it's like a mini database inside the browser
 
-const DB_NAME = 'AdaptiReadDB';
+const DB_NAME = 'fluentifyDB';
 const DB_VERSION = 3; // incremented to clear legacy replacements data
 const STORE_VOCAB = 'vocabulary';
 const STORE_INTERACTIONS = 'interactions';
@@ -11,7 +11,7 @@ const STORE_CONTEXTS = 'contexts';
 const STORE_PRACTICE = 'practice_content';
 const STORE_MISUNDERSTOOD = 'misunderstood_sentences';
 
-class AdaptiReadStorage {
+class fluentifyStorage {
     constructor() {
         this.db = null;
     }
@@ -283,9 +283,9 @@ class AdaptiReadStorage {
 }
 
 // export as a singleton so everyone uses the same db connection
-const storage = new AdaptiReadStorage();
+const storage = new fluentifyStorage();
 if (typeof module !== 'undefined') {
     module.exports = storage;
 } else {
-    self.adaptiReadStorage = storage;
+    self.fluentifyStorage = storage;
 }
